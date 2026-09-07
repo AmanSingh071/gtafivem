@@ -156,27 +156,31 @@ RegisterNetEvent('qbx_storerobbery:server:failedSafeCracking', function()
     if index then resetSafe(index) end
 end)
 
-RegisterNetEvent('qbx_storerobbery:server:safeCracked', function(enteredCode)
-    local src = source
+local function completeKeypadSafe(src, enteredCode)
     local player = exports.qbx_core:GetPlayer(src)
     local ped = GetPlayerPed(src)
     local index = startedSafe[src]
     if not player or ped <= 0 or not index or not sharedConfig.safes[index] then return end
+
     if #(GetEntityCoords(ped) - sharedConfig.safes[index].coords) > 2.5 then
         startedSafe[src] = nil
         resetSafe(index)
         return
     end
+
     if not sharedConfig.safes[index].robbed then
         startedSafe[src] = nil
         return
     end
 
     if sharedConfig.safes[index].type == 'keypad' and tonumber(enteredCode) ~= tonumber(safeCodes[index]) then
+        TriggerClientEvent('qbx_storerobbery:client:safeResult', src, false)
         startedSafe[src] = nil
         resetSafe(index)
         return
     end
+
+    TriggerClientEvent('qbx_storerobbery:client:safeResult', src, true)
 
     local worth = math.random(config.safeReward.markedBillsWorth.min, config.safeReward.markedBillsWorth.max)
     local amount = math.random(config.safeReward.markedBillsAmount.min, config.safeReward.markedBillsAmount.max)
@@ -190,6 +194,16 @@ RegisterNetEvent('qbx_storerobbery:server:safeCracked', function(enteredCode)
     startedSafe[src] = nil
     broadcastState()
     SetTimeout(math.random(config.safeRefresh.min, config.safeRefresh.max), function() resetSafe(index) end)
+end
+
+RegisterNetEvent('qbx_storerobbery:server:checkSafeCombination', function(enteredCode)
+    local src = source
+    completeKeypadSafe(src, enteredCode)
+end)
+
+RegisterNetEvent('qbx_storerobbery:server:safeCracked', function(enteredCode)
+    local src = source
+    completeKeypadSafe(src, enteredCode)
 end)
 
 AddEventHandler('playerJoining', function()
