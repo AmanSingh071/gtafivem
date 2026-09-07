@@ -84,6 +84,14 @@ RegisterNetEvent('qbx_storerobbery:client:initSafeAttempt', function(closestSafe
     end
 end)
 
+RegisterNetEvent('qbx_storerobbery:client:safeResult', function(correct)
+    if correct then
+        SendNUIMessage({ action = 'safeResult', correct = true })
+    else
+        SendNUIMessage({ action = 'safeResult', correct = false })
+    end
+end)
+
 RegisterNetEvent('SafeCracker:EndMinigame', function(hasWon)
     releaseNuiFocus()
     if hasWon then
@@ -155,17 +163,15 @@ RegisterNUICallback('combinationFail', function(_, cb)
 end)
 
 RegisterNUICallback('tryCombination', function(data, cb)
-    releaseNuiFocus()
     local entered = tonumber(data and data.combination)
-    if entered and entered == tonumber(currentCombination) then
-        TriggerServerEvent('qbx_storerobbery:server:safeCracked', entered)
-        SendNUIMessage({ action = 'closeKeypad', error = false })
-        safeAnim()
-    else
-        TriggerServerEvent('qbx_storerobbery:server:failedSafeCracking')
-        SendNUIMessage({ action = 'closeKeypad', error = true })
+    if not entered or not currentCombination then
+        releaseNuiFocus()
+        cb('ok')
+        return
     end
-    currentCombination = nil
+
+    local correct = entered == tonumber(currentCombination)
+    TriggerServerEvent('qbx_storerobbery:server:checkSafeCombination', entered)
     cb('ok')
 end)
 
