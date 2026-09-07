@@ -15,6 +15,7 @@ shared_scripts {
 client_scripts {
     'client/main.lua',
     'client/air_pursuit.lua',
+    'client/helicopter_fix.lua',
 }
 
 server_script 'server/main.lua'
