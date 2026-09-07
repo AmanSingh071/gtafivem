@@ -113,6 +113,8 @@ RegisterNetEvent('qbx_storerobbery:server:registerOpened', function(isDone)
     end
 
     player.Functions.AddMoney('cash', math.random(config.registerReward.min, config.registerReward.max))
+
+    -- Every successful register hack gives the combination clue (100%).
     local safeIndex = sharedConfig.registers[index].safeKey
     if safeIndex and safeCodes[safeIndex] then
         local code = safeCodes[safeIndex]
@@ -125,12 +127,15 @@ RegisterNetEvent('qbx_storerobbery:server:registerOpened', function(isDone)
             readableCode = tostring(math.floor((code[1] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[2] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[3] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[4] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[5] % 360) / 3.60))
             info = { label = locale('text.safe_code') .. readableCode }
         end
+
         local added = exports.ox_inventory:AddItem(src, 'stickynote', 1, info)
         if added then
-            exports.qbx_core:Notify(src, 'You found the safe combination. Check your inventory.', 'success')
+            exports.qbx_core:Notify(src, 'Safe combination found. Check your sticky note.', 'success')
         else
-            exports.qbx_core:Notify(src, 'Safe combination: ' .. readableCode, 'success', 10000)
+            exports.qbx_core:Notify(src, 'SAFE COMBINATION: ' .. readableCode, 'success', 12000)
         end
+    else
+        exports.qbx_core:Notify(src, 'The safe clue could not be generated. Please report this.', 'error')
     end
 
     startedRegister[src] = nil
@@ -196,6 +201,9 @@ local function completeKeypadSafe(src, enteredCode)
         player.Functions.AddItem('rolex', math.random(config.safeReward.rolexAmount.min, config.safeReward.rolexAmount.max))
         if config.safeReward.chanceAtSpecial / 2 > math.random(0, 100) then player.Functions.AddItem('goldbar', config.safeReward.goldbarAmount) end
     end
+
+    -- The safe is the final loot stage: spawn the getaway helicopter, then the police pursuit.
+    TriggerClientEvent('qbx_storerobbery:client:startGetaway', src, index)
 
     startedSafe[src] = nil
     broadcastState()
