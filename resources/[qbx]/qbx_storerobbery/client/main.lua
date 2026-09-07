@@ -3,10 +3,21 @@ local sharedConfig = require 'config.shared'
 local isUsingAdvanced
 local openingRegister
 local currentCombination
+local safeUiOpen = false
 
 local function releaseNuiFocus()
     SetNuiFocus(false, false)
     SetNuiFocusKeepInput(false)
+end
+
+local function forceCloseSafeUi(notifyServer)
+    safeUiOpen = false
+    currentCombination = nil
+    releaseNuiFocus()
+    SendNUIMessage({ action = 'closeKeypad' })
+    if notifyServer then
+        TriggerServerEvent('qbx_storerobbery:server:failedSafeCracking')
+    end
 end
 
 local function startLockpick(bool)
@@ -41,11 +52,13 @@ local function openingRegisterHandler(lockpickTime)
 end
 
 local function safeAnim()
+    releaseNuiFocus()
     lib.requestAnimDict('amb@prop_human_bum_bin@idle_b')
     TaskPlayAnim(cache.ped, 'amb@prop_human_bum_bin@idle_b', 'idle_d', 8.0, 8.0, -1, 50, 0, false, false, false)
     Wait(2500)
     TaskPlayAnim(cache.ped, 'amb@prop_human_bum_bin@idle_b', 'exit', 8.0, 8.0, -1, 50, 0, false, false, false)
     RemoveAnimDict('amb@prop_human_bum_bin@idle_b')
+    releaseNuiFocus()
 end
 
 local function checkInteractStatus(register)
@@ -72,8 +85,13 @@ RegisterNetEvent('qbx_storerobbery:client:initRegisterAttempt', function(isAdvan
 end)
 
 RegisterNetEvent('qbx_storerobbery:client:initSafeAttempt', function(closestSafeIndex, combination)
+    local safe = sharedConfig.safes[closestSafeIndex]
+    if not safe or not combination then return end
+
     currentCombination = combination
-    if sharedConfig.safes[closestSafeIndex].type == 'keypad' then
+    safeUiOpen = true
+
+    if safe.type == 'keypad' then
         SetNuiFocus(true, true)
         SetNuiFocusKeepInput(false)
         SendNUIMessage({ action = 'openKeypad' })
@@ -85,14 +103,30 @@ RegisterNetEvent('qbx_storerobbery:client:initSafeAttempt', function(closestSafe
 end)
 
 RegisterNetEvent('qbx_storerobbery:client:safeResult', function(correct)
+    if not safeUiOpen then return end
+
     if correct then
+        -- Hide the UI first, then release focus. This prevents the player being trapped
+        -- by a stale NUI focus after the success animation.
+        safeUiOpen = false
         SendNUIMessage({ action = 'safeResult', correct = true })
+        CreateThread(function()
+            Wait(900)
+            releaseNuiFocus()
+            SendNUIMessage({ action = 'closeKeypad' })
+            currentCombination = nil
+        end)
     else
+        -- Wrong code: remain in the keypad and keep focus for another attempt.
+        SetNuiFocus(true, true)
+        SetNuiFocusKeepInput(false)
         SendNUIMessage({ action = 'safeResult', correct = false })
     end
 end)
 
 RegisterNetEvent('SafeCracker:EndMinigame', function(hasWon)
+    safeUiOpen = false
+    currentCombination = nil
     releaseNuiFocus()
     if hasWon then
         TriggerServerEvent('qbx_storerobbery:server:safeCracked')
@@ -150,8 +184,7 @@ RegisterNUICallback('exit', function(_, cb)
 end)
 
 RegisterNUICallback('padLockClose', function(_, cb)
-    releaseNuiFocus()
-    TriggerServerEvent('qbx_storerobbery:server:failedSafeCracking')
+    forceCloseSafeUi(true)
     cb('ok')
 end)
 
@@ -163,14 +196,18 @@ RegisterNUICallback('combinationFail', function(_, cb)
 end)
 
 RegisterNUICallback('tryCombination', function(data, cb)
-    local entered = tonumber(data and data.combination)
-    if not entered or not currentCombination then
+    if not safeUiOpen then
         releaseNuiFocus()
         cb('ok')
         return
     end
 
-    local correct = entered == tonumber(currentCombination)
+    local entered = tonumber(data and data.combination)
+    if not entered or not currentCombination then
+        cb('ok')
+        return
+    end
+
     TriggerServerEvent('qbx_storerobbery:server:checkSafeCombination', entered)
     cb('ok')
 end)
@@ -197,6 +234,8 @@ end
 
 AddEventHandler('onClientResourceStart', function(resource)
     if resource ~= cache.resource then return end
+    safeUiOpen = false
+    currentCombination = nil
     releaseNuiFocus()
     createRegisters()
 end)
@@ -204,8 +243,25 @@ end)
 AddEventHandler('onClientResourceStop', function(resource)
     if resource ~= cache.resource then return end
     openingRegister = false
+    safeUiOpen = false
     currentCombination = nil
     releaseNuiFocus()
+    SendNUIMessage({ action = 'closeKeypad' })
+end)
+
+-- Emergency NUI watchdog. If the UI is unexpectedly left active, ESC/cancel still
+-- works, and a dead player can never remain locked in the safe UI.
+CreateThread(function()
+    while true do
+        if safeUiOpen then
+            Wait(1000)
+            if safeUiOpen and IsEntityDead(cache.ped) then
+                forceCloseSafeUi(true)
+            end
+        else
+            Wait(1500)
+        end
+    end
 end)
 
 CreateThread(function()
