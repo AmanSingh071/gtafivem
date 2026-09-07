@@ -1,0 +1,9 @@
+cache/
+.replxx_history
+*.log
+server.cfg
+server.cfg.bkp
+.env
+*.env
+how to run this file.docx
+how to run this file.txt
