@@ -114,15 +114,23 @@ RegisterNetEvent('qbx_storerobbery:server:registerOpened', function(isDone)
 
     player.Functions.AddMoney('cash', math.random(config.registerReward.min, config.registerReward.max))
     local safeIndex = sharedConfig.registers[index].safeKey
-    if config.registerReward.chanceAtSticky > math.random(0, 100) and safeIndex and safeCodes[safeIndex] then
+    if safeIndex and safeCodes[safeIndex] then
         local code = safeCodes[safeIndex]
         local info
+        local readableCode
         if sharedConfig.safes[safeIndex].type == 'keypad' then
-            info = { label = locale('text.safe_code') .. tostring(code) }
+            readableCode = tostring(code)
+            info = { label = locale('text.safe_code') .. readableCode }
         else
-            info = { label = locale('text.safe_code') .. tostring(math.floor((code[1] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[2] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[3] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[4] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[5] % 360) / 3.60)) }
+            readableCode = tostring(math.floor((code[1] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[2] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[3] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[4] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[5] % 360) / 3.60))
+            info = { label = locale('text.safe_code') .. readableCode }
         end
-        exports.ox_inventory:AddItem(src, 'stickynote', 1, info)
+        local added = exports.ox_inventory:AddItem(src, 'stickynote', 1, info)
+        if added then
+            exports.qbx_core:Notify(src, 'You found the safe combination. Check your inventory.', 'success')
+        else
+            exports.qbx_core:Notify(src, 'Safe combination: ' .. readableCode, 'success', 10000)
+        end
     end
 
     startedRegister[src] = nil
