@@ -175,8 +175,6 @@ local function completeKeypadSafe(src, enteredCode)
 
     if sharedConfig.safes[index].type == 'keypad' and tonumber(enteredCode) ~= tonumber(safeCodes[index]) then
         TriggerClientEvent('qbx_storerobbery:client:safeResult', src, false)
-        startedSafe[src] = nil
-        resetSafe(index)
         return
     end
 
@@ -197,13 +195,11 @@ local function completeKeypadSafe(src, enteredCode)
 end
 
 RegisterNetEvent('qbx_storerobbery:server:checkSafeCombination', function(enteredCode)
-    local src = source
-    completeKeypadSafe(src, enteredCode)
+    completeKeypadSafe(source, enteredCode)
 end)
 
 RegisterNetEvent('qbx_storerobbery:server:safeCracked', function(enteredCode)
-    local src = source
-    completeKeypadSafe(src, enteredCode)
+    completeKeypadSafe(source, enteredCode)
 end)
 
 AddEventHandler('playerJoining', function()
