@@ -41,6 +41,9 @@
 
     function buildFriendlyKeypad() {
         if (!$('#PINbox').length) return;
+
+        // The original script sets display:block inline. Force the new flex overlay.
+        $('#keypad').css('display', 'flex');
         $('#PINform').attr('draggable', 'false');
         $('#PINbox').attr('readonly', true).attr('inputmode', 'numeric').attr('maxlength', '4');
         $('#PINbox').attr('placeholder', '••••');
@@ -76,7 +79,7 @@
 
         if (event.key === 'Escape') {
             event.preventDefault();
-            $('#keypad').css('display', 'none');
+            closeKeypadLocal();
             $.post(`https://${GetParentResourceName()}/padLockClose`);
         }
     });
