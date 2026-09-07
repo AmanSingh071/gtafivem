@@ -21,7 +21,7 @@
     let markerPosition = 3;
     let markerDirection = 1;
     let round = 1;
-    let totalRounds = 3;
+    let totalRounds = 4;
     let targetStart = 35;
     let targetWidth = 25;
     let speed = 0.62;
@@ -35,35 +35,25 @@
         body: JSON.stringify(data)
     }).catch(() => {});
 
-    function setVisible(element, visible) {
-        element.classList.toggle('hidden', !visible);
-    }
-
-    function showRoot() {
-        root.classList.add('visible');
-        root.setAttribute('aria-hidden', 'false');
-    }
-
-    function hideRoot() {
-        root.classList.remove('visible');
-        root.setAttribute('aria-hidden', 'true');
-    }
+    function setVisible(element, visible) { element.classList.toggle('hidden', !visible); }
+    function showRoot() { root.classList.add('visible'); root.setAttribute('aria-hidden', 'false'); }
+    function hideRoot() { root.classList.remove('visible'); root.setAttribute('aria-hidden', 'true'); }
 
     function resetLockpickState() {
         stopLockpick();
         submitting = false;
         round = 1;
-        totalRounds = advanced ? 2 : 3;
+        totalRounds = advanced ? 3 : 4;
         markerPosition = 3;
         markerDirection = 1;
         targetStart = 25 + Math.random() * 50;
-        targetWidth = advanced ? 31 : 25 + Math.random() * 3;
+        targetWidth = advanced ? 31 : 25;
         speed = advanced ? 0.50 : 0.64;
         roundLabel.textContent = round;
         totalLabel.textContent = totalRounds;
         status.textContent = 'Hit SPACE when the marker is green';
         status.className = '';
-        toolLabel.textContent = advanced ? 'Advanced lockpick · 2 stages' : 'Standard lockpick · 3 stages';
+        toolLabel.textContent = advanced ? 'Advanced lockpick · 3 stages' : 'Standard lockpick · 4 stages';
         dots.innerHTML = Array.from({ length: totalRounds }, (_, i) => `<span class="${i === 0 ? 'active' : ''}"></span>`).join('');
         placeTarget();
         placeMarker();
@@ -73,10 +63,7 @@
         target.style.left = `${targetStart}%`;
         target.style.width = `${targetWidth}%`;
     }
-
-    function placeMarker() {
-        marker.style.left = `${markerPosition}%`;
-    }
+    function placeMarker() { marker.style.left = `${markerPosition}%`; }
 
     function startLockpick() {
         if (lockpickRunning || submitting || mode !== 'lockpick') return;
@@ -102,32 +89,26 @@
     function hitLockpick() {
         if (mode !== 'lockpick' || submitting) return;
         if (!lockpickRunning) startLockpick();
-
         const inside = markerPosition >= targetStart && markerPosition <= targetStart + targetWidth;
         stopLockpick();
 
         if (!inside) {
-            status.textContent = 'Missed — keep going';
+            status.textContent = 'Missed — try the next timing window';
             status.className = 'bad';
             marker.classList.add('shake');
             setTimeout(() => marker.classList.remove('shake'), 280);
-            setTimeout(() => {
-                if (mode === 'lockpick' && !submitting) startNewRound();
-            }, 420);
+            setTimeout(() => { if (mode === 'lockpick' && !submitting) startNewRound(); }, 420);
             return;
         }
 
-        status.textContent = 'Perfect! Pin released';
+        status.textContent = round >= totalRounds ? 'Lock released!' : 'Perfect — pin released';
         status.className = 'good';
         marker.classList.add('success');
         setTimeout(() => marker.classList.remove('success'), 300);
 
         if (round >= totalRounds) {
             submitting = true;
-            setTimeout(() => {
-                post('success');
-                closeUI(false);
-            }, 350);
+            setTimeout(() => { post('success'); closeUI(false); }, 350);
             return;
         }
 
@@ -140,7 +121,7 @@
         roundLabel.textContent = round;
         dots.querySelectorAll('span').forEach((dot, i) => dot.classList.toggle('active', i === round - 1));
         targetStart = 25 + Math.random() * 50;
-        targetWidth = advanced ? 31 : 25 + Math.random() * 3;
+        targetWidth = advanced ? 31 : 25;
         markerPosition = 3;
         markerDirection = 1;
         placeTarget();
@@ -177,23 +158,23 @@
         setVisible(lockpickUI, false);
         setVisible(keypadUI, true);
         showRoot();
-        keypadUI.classList.remove('invalid');
+        keypadUI.classList.remove('invalid', 'success');
         renderPin();
+        pinMessage.textContent = 'ENTER 4 DIGITS';
     }
 
     function submitKeypad() {
         if (mode !== 'keypad' || submitting) return;
         if (combo.length !== 4) {
-            pinMessage.textContent = 'ENTER 4 DIGITS';
+            pinMessage.textContent = 'ENTER ALL 4 DIGITS';
             keypadUI.classList.remove('invalid');
             void keypadUI.offsetWidth;
             keypadUI.classList.add('invalid');
             return;
         }
         submitting = true;
-        pinMessage.textContent = 'CHECKING CODE…';
+        pinMessage.textContent = 'VERIFYING CODE…';
         post('tryCombination', { combination: combo });
-        closeUI(false);
     }
 
     function addDigit(digit) {
@@ -201,18 +182,16 @@
         combo += digit;
         renderPin();
     }
-
     function backspace() {
         if (mode !== 'keypad' || submitting) return;
         combo = combo.slice(0, -1);
         renderPin();
     }
-
     function clearKeypad() {
         if (mode !== 'keypad' || submitting) return;
         combo = '';
         renderPin();
-        pinMessage.textContent = 'CLEARED';
+        pinMessage.textContent = 'CLEARED — ENTER CODE';
     }
 
     function closeUI(sendClose = true) {
@@ -242,16 +221,9 @@
 
     document.addEventListener('keydown', (event) => {
         if (!mode) return;
-        if (event.key === 'Escape') {
-            event.preventDefault();
-            closeUI();
-            return;
-        }
+        if (event.key === 'Escape') { event.preventDefault(); closeUI(); return; }
         if (mode === 'lockpick') {
-            if (event.code === 'Space' || event.key === 'Enter') {
-                event.preventDefault();
-                hitLockpick();
-            }
+            if (event.code === 'Space' || event.key === 'Enter') { event.preventDefault(); hitLockpick(); }
             return;
         }
         if (mode === 'keypad') {
@@ -272,17 +244,25 @@
                 if (data.toggle) openLockpick(!!data.advanced);
                 else closeUI(false);
                 break;
-            case 'openKeypad':
-                openKeypad();
+            case 'openKeypad': openKeypad(); break;
+            case 'closeKeypad': closeUI(false); break;
+            case 'safeResult':
+                if (mode !== 'keypad') break;
+                submitting = false;
+                if (data.correct) {
+                    pinMessage.textContent = '✓ CODE CORRECT — SAFE UNLOCKED';
+                    keypadUI.classList.remove('invalid');
+                    keypadUI.classList.add('success');
+                    setTimeout(() => closeUI(false), 900);
+                } else {
+                    pinMessage.textContent = '✕ INCORRECT CODE — TRY AGAIN';
+                    keypadUI.classList.remove('success');
+                    void keypadUI.offsetWidth;
+                    keypadUI.classList.add('invalid');
+                }
                 break;
-            case 'closeKeypad':
-                closeUI(false);
-                break;
-            case 'openPadlock':
-                break;
-            case 'closePadlock':
-                closeUI(false);
-                break;
+            case 'openPadlock': break;
+            case 'closePadlock': closeUI(false); break;
         }
     });
 })();
