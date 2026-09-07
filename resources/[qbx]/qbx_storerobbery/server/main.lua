@@ -4,9 +4,12 @@ local startedRegister = {}
 local startedSafe = {}
 local safeCodes = {}
 local safeCodeUsed = {}
+local playerProgress = {}
+local activeChain = {}
 
--- Optional sequential safe chains. These are INTERNAL ids; players only see
--- the friendly safe number stored on the clue.
+-- The Davis/Strawberry LTD store has two physical safes:
+-- Safe 2 = jewelry safe, Safe 3 = final safe.
+-- Safe 3 can only be started after the same player has completed Safe 2.
 local safeRequires = {
     [3] = 2,
 }
@@ -33,6 +36,18 @@ local function broadcastState()
     TriggerClientEvent('qbx_storerobbery:client:updatedRobbables', -1, sharedConfig.registers, sharedConfig.safes)
 end
 
+local function clearSafeCode(index)
+    local oldCode = safeCodes[index]
+    if oldCode then
+        if type(oldCode) == 'table' then
+            safeCodeUsed[table.concat(oldCode, ':')] = nil
+        else
+            safeCodeUsed[oldCode] = nil
+        end
+    end
+    safeCodes[index] = nil
+end
+
 local function resetRegister(index)
     if not index or not sharedConfig.registers[index] then return end
     sharedConfig.registers[index].robbed = false
@@ -42,10 +57,20 @@ end
 local function resetSafe(index)
     if not index or not sharedConfig.safes[index] then return end
     sharedConfig.safes[index].robbed = false
-    local oldCode = safeCodes[index]
-    if oldCode then safeCodeUsed[oldCode] = nil end
-    safeCodes[index] = nil
+    clearSafeCode(index)
     broadcastState()
+end
+
+local function resetSafeChain(rootIndex)
+    local child
+    for safeIndex, requiredIndex in pairs(safeRequires) do
+        if requiredIndex == rootIndex then
+            child = safeIndex
+            break
+        end
+    end
+    resetSafe(rootIndex)
+    if child then resetSafe(child) end
 end
 
 local function generateUniqueKeypadCode()
@@ -95,15 +120,46 @@ local function getReadableCode(index)
     }, '-')
 end
 
-local function playerHasSafeNote(src, safeIndex)
+local function findSafeNote(src, safeIndex)
     local slots = exports.ox_inventory:Search(src, 'slots', 'stickynote')
-    if not slots then return false end
-    local expected = getReadableCode(safeIndex)
+    if not slots then return nil end
+    local expected = safeCodes[safeIndex] and getReadableCode(safeIndex) or nil
+    if not expected then return nil end
     for _, slot in pairs(slots) do
         local metadata = slot.metadata or {}
-        if tonumber(metadata.safeIndex) == safeIndex and tostring(metadata.safeCode or '') == expected then return true end
+        if tonumber(metadata.safeIndex) == safeIndex and tostring(metadata.safeCode or '') == expected then
+            return slot
+        end
     end
-    return false
+    return nil
+end
+
+local function playerHasSafeNote(src, safeIndex)
+    return findSafeNote(src, safeIndex) ~= nil
+end
+
+local function consumeSafeNote(src, safeIndex)
+    local slot = findSafeNote(src, safeIndex)
+    if not slot then return false end
+    return exports.ox_inventory:RemoveItem(src, 'stickynote', 1, nil, slot.slot)
+end
+
+local function giveSafeNote(src, safeIndex, stageName)
+    local readableCode = getReadableCode(safeIndex)
+    local info = {
+        label = ('%s • %s'):format(stageName, readableCode),
+        description = ('Combination for %s: %s'):format(stageName, readableCode),
+        safeIndex = safeIndex,
+        safeCode = readableCode,
+        robberyStage = safeRequires[safeIndex] and 2 or 1,
+    }
+    local added = exports.ox_inventory:AddItem(src, 'stickynote', 1, info)
+    if added then
+        exports.qbx_core:Notify(src, ('%s code found. Check your sticky note.'):format(stageName), 'success', 8000)
+    else
+        exports.qbx_core:Notify(src, ('%s combination: %s'):format(stageName, readableCode), 'success', 12000)
+    end
+    return added
 end
 
 RegisterNetEvent('qbx_storerobbery:server:checkStatus', function()
@@ -112,6 +168,12 @@ RegisterNetEvent('qbx_storerobbery:server:checkStatus', function()
     if ped <= 0 then return end
     local index = getClosestRegister(GetEntityCoords(ped))
     if not index or sharedConfig.registers[index].robbed or startedRegister[src] then return end
+
+    local safeIndex = sharedConfig.registers[index].safeKey
+    if safeIndex and sharedConfig.safes[safeIndex] and sharedConfig.safes[safeIndex].robbed then
+        exports.qbx_core:Notify(src, 'The linked safe has already been looted. Wait for the store to reset.', 'error')
+        return
+    end
 
     local leoCount = exports.qbx_core:GetDutyCountType('leo')
     if leoCount < sharedConfig.minimumCops then
@@ -182,20 +244,8 @@ RegisterNetEvent('qbx_storerobbery:server:registerOpened', function(isDone)
 
     local safeIndex = sharedConfig.registers[index].safeKey
     if safeIndex and sharedConfig.safes[safeIndex] then
-        local readableCode = getReadableCode(safeIndex)
-        local displaySafe = sharedConfig.safes[safeIndex].displayName or ('Safe ' .. tostring(safeIndex))
-        local info = {
-            label = ('%s • %s'):format(displaySafe, readableCode),
-            description = ('Combination for %s: %s'):format(displaySafe, readableCode),
-            safeIndex = safeIndex,
-            safeCode = readableCode,
-        }
-        local added = exports.ox_inventory:AddItem(src, 'stickynote', 1, info)
-        if added then
-            exports.qbx_core:Notify(src, ('%s code found. Check your sticky note.'):format(displaySafe), 'success', 8000)
-        else
-            exports.qbx_core:Notify(src, ('%s combination: %s'):format(displaySafe, readableCode), 'success', 12000)
-        end
+        local stageName = safeRequires[safeIndex] and 'Second Safe' or (safeIndex == 2 and 'Jewelry Safe' or ('Safe ' .. tostring(safeIndex)))
+        giveSafeNote(src, safeIndex, stageName)
     end
 
     startedRegister[src] = nil
@@ -211,13 +261,16 @@ RegisterNetEvent('qbx_storerobbery:server:trySafe', function()
     if not index or sharedConfig.safes[index].robbed then return end
 
     local required = safeRequires[index]
-    if required and sharedConfig.safes[required] and not sharedConfig.safes[required].robbed then
-        exports.qbx_core:Notify(src, ('Open Safe %s first.'):format(sharedConfig.safes[required].displayName or required), 'error')
-        return
+    if required then
+        if not playerProgress[src] or not playerProgress[src][required] then
+            exports.qbx_core:Notify(src, 'Complete the Jewelry Safe first.', 'error')
+            return
+        end
     end
 
     if not playerHasSafeNote(src, index) then
-        exports.qbx_core:Notify(src, ('You need the sticky note for %s.'):format(sharedConfig.safes[index].displayName or ('Safe ' .. index)), 'error')
+        local stageName = safeRequires[index] and 'the second safe' or (index == 2 and 'the Jewelry Safe' or ('Safe ' .. index))
+        exports.qbx_core:Notify(src, ('You need the sticky note for %s.'):format(stageName), 'error')
         return
     end
 
@@ -229,13 +282,31 @@ RegisterNetEvent('qbx_storerobbery:server:trySafe', function()
 
     local code = ensureSafeCode(index)
     startedSafe[src] = index
-    -- Do NOT mark robbed yet. A wrong code/cancel must allow another attempt.
     TriggerClientEvent('qbx_storerobbery:client:initSafeAttempt', src, index, code)
 end)
 
 RegisterNetEvent('qbx_storerobbery:server:failedSafeCracking', function()
     startedSafe[source] = nil
 end)
+
+local function giveFinalSafeReward(player, index)
+    local worth = math.random(config.safeReward.markedBillsWorth.min, config.safeReward.markedBillsWorth.max)
+    local amount = math.random(config.safeReward.markedBillsAmount.min, config.safeReward.markedBillsAmount.max)
+    player.Functions.AddItem('markedbills', amount, false, { worth = worth, description = locale('text.value', { value = worth }) })
+
+    if index == 2 then
+        player.Functions.AddItem('rolex', math.random(config.safeReward.rolexAmount.min, config.safeReward.rolexAmount.max))
+        player.Functions.AddItem('goldbar', 1)
+        return
+    end
+
+    if config.safeReward.chanceAtSpecial > math.random(0, 100) then
+        player.Functions.AddItem('rolex', math.random(config.safeReward.rolexAmount.min, config.safeReward.rolexAmount.max))
+        if config.safeReward.chanceAtSpecial / 2 > math.random(0, 100) then
+            player.Functions.AddItem('goldbar', config.safeReward.goldbarAmount)
+        end
+    end
+end
 
 local function completeSafe(src, enteredCode)
     local player = exports.qbx_core:GetPlayer(src)
@@ -254,6 +325,13 @@ local function completeSafe(src, enteredCode)
         return
     end
 
+    local required = safeRequires[index]
+    if required and (not playerProgress[src] or not playerProgress[src][required]) then
+        startedSafe[src] = nil
+        TriggerClientEvent('qbx_storerobbery:client:safeResult', src, false, 'Complete the first safe before this one.')
+        return
+    end
+
     if not playerHasSafeNote(src, index) then
         TriggerClientEvent('qbx_storerobbery:client:safeResult', src, false, 'Matching sticky note required.')
         return
@@ -265,22 +343,39 @@ local function completeSafe(src, enteredCode)
         return
     end
 
+    consumeSafeNote(src, index)
     sharedConfig.safes[index].robbed = true
     startedSafe[src] = nil
-    TriggerClientEvent('qbx_storerobbery:client:safeResult', src, true, 'Safe unlocked!')
+    playerProgress[src] = playerProgress[src] or {}
+    playerProgress[src][index] = true
 
-    local worth = math.random(config.safeReward.markedBillsWorth.min, config.safeReward.markedBillsWorth.max)
-    local amount = math.random(config.safeReward.markedBillsAmount.min, config.safeReward.markedBillsAmount.max)
-    player.Functions.AddItem('markedbills', amount, false, { worth = worth, description = locale('text.value', { value = worth }) })
+    TriggerClientEvent('qbx_storerobbery:client:safeResult', src, true, index == 2 and 'Jewelry safe unlocked!' or 'Safe unlocked!')
+    giveFinalSafeReward(player, index)
 
-    if config.safeReward.chanceAtSpecial > math.random(0, 100) then
-        player.Functions.AddItem('rolex', math.random(config.safeReward.rolexAmount.min, config.safeReward.rolexAmount.max))
-        if config.safeReward.chanceAtSpecial / 2 > math.random(0, 100) then player.Functions.AddItem('goldbar', config.safeReward.goldbarAmount) end
+    local nextSafe = nil
+    for child, parent in pairs(safeRequires) do
+        if parent == index then
+            nextSafe = child
+            break
+        end
     end
 
-    TriggerClientEvent('qbx_storerobbery:client:startGetaway', src, index)
+    if nextSafe and sharedConfig.safes[nextSafe] and not sharedConfig.safes[nextSafe].robbed then
+        activeChain[src] = index
+        giveSafeNote(src, nextSafe, 'Second Safe')
+        exports.qbx_core:Notify(src, 'You found another combination. The second safe is now available.', 'success', 10000)
+    else
+        activeChain[src] = nil
+        TriggerClientEvent('qbx_storerobbery:client:startGetaway', src, index)
+    end
+
     broadcastState()
-    SetTimeout(math.random(config.safeRefresh.min, config.safeRefresh.max), function() resetSafe(index) end)
+
+    local chainRoot = required or index
+    if safeRequires[chainRoot] then chainRoot = safeRequires[chainRoot] end
+    SetTimeout(math.random(config.safeRefresh.min, config.safeRefresh.max), function()
+        resetSafeChain(chainRoot)
+    end)
 end
 
 RegisterNetEvent('qbx_storerobbery:server:checkSafeCombination', function(enteredCode)
@@ -299,13 +394,14 @@ AddEventHandler('playerDropped', function()
     local src = source
     local register = startedRegister[src]
     local safe = startedSafe[src]
+    local chainRoot = activeChain[src]
     startedRegister[src] = nil
     startedSafe[src] = nil
+    playerProgress[src] = nil
+    activeChain[src] = nil
     if register then resetRegister(register) end
-    if safe then
-        -- A player abandoning an active safe attempt must not consume it.
-        startedSafe[src] = nil
-    end
+    if safe then startedSafe[src] = nil end
+    if chainRoot then resetSafeChain(chainRoot) end
 end)
 
 lib.callback.register('qbx_storerobbery:server:leoCount', function()
