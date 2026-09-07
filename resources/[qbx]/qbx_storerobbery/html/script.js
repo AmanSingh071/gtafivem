@@ -1,357 +1,288 @@
-var minRot = -90,
-    maxRot = 90,
-    solveDeg = (Math.random() * 180) - 90,
-    solvePadding = 4,
-    maxDistFromSolve = 45,
-    pinRot = 0,
-    cylRot = 0,
-    lastMousePos = 0,
-    mouseSmoothing = 2,
-    keyRepeatRate = 25,
-    cylRotSpeed = 3,
-    pinDamage = 20,
-    pinHealth = 100,
-    pinDamageInterval = 150,
-    numPins = 1,
-    userPushingCyl = false,
-    gameOver = false,
-    gamePaused = false,
-    pin, cyl, driver, cylRotationInterval, pinLastDamaged;
+(() => {
+    'use strict';
 
+    const root = document.getElementById('store-ui');
+    const lockpickUI = document.getElementById('lockpick-ui');
+    const keypadUI = document.getElementById('keypad-ui');
+    const marker = document.getElementById('marker');
+    const target = document.getElementById('target-zone');
+    const status = document.getElementById('lockpick-status');
+    const roundLabel = document.getElementById('lockpick-round');
+    const totalLabel = document.getElementById('lockpick-total');
+    const dots = document.getElementById('round-dots');
+    const toolLabel = document.getElementById('lockpick-tool');
+    const pinMessage = document.getElementById('pin-message');
+    const pinDisplay = document.getElementById('pin-display');
 
+    let mode = null;
+    let combo = '';
+    let lockpickTimer = null;
+    let lockpickRunning = false;
+    let markerPosition = 3;
+    let markerDirection = 1;
+    let round = 1;
+    let totalRounds = 3;
+    let targetStart = 35;
+    let targetWidth = 25;
+    let speed = 0.62;
+    let advanced = false;
+    let submitting = false;
 
-var Keypad = {}
-var Padlock = {}
-var CurrentType = ""
+    const resource = () => GetParentResourceName();
+    const post = (name, data = {}) => fetch(`https://${resource()}/${name}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+        body: JSON.stringify(data)
+    }).catch(() => {});
 
-var combo = [];
-
-Padlock.Open = function(data) {
-    CurrentType = "padlock"
-    $(".combonum").removeClass("found");
-    combo = [];
-    $("#padlock").css("display", "block");
-    $.each(data.combination, function(i, combi){
-        combo.push(combi);
-    });
-}
-
-Padlock.Close = function() {
-    $("#padlock").css("display", "none");
-    $.post(`https://${GetParentResourceName()}/padLockClose`);
-}
-
-Keypad.Open = function(data) {
-    CurrentType = "keypad"
-    $("#keypad").css("display", "block");
-    $( "#keypad" ).html(
-        "<form action='' method='' name='PINform' id='PINform' autocomplete='off' draggable='true'>" +
-            "<input id='PINbox' type='password' value='' name='PINbox' disabled />" +
-            "<br/>" +
-            "<input type='button' class='PINbutton' name='1' value='1' id='1' onClick=addKeyPadNumber(this); />" +
-            "<input type='button' class='PINbutton' name='2' value='2' id='2' onClick=addKeyPadNumber(this); />" +
-            "<input type='button' class='PINbutton' name='3' value='3' id='3' onClick=addKeyPadNumber(this); />" +
-            "<br>" +
-            "<input type='button' class='PINbutton' name='4' value='4' id='4' onClick=addKeyPadNumber(this); />" +
-            "<input type='button' class='PINbutton' name='5' value='5' id='5' onClick=addKeyPadNumber(this); />" +
-            "<input type='button' class='PINbutton' name='6' value='6' id='6' onClick=addKeyPadNumber(this); />" +
-            "<br>" +
-            "<input type='button' class='PINbutton' name='7' value='7' id='7' onClick=addKeyPadNumber(this); />" +
-            "<input type='button' class='PINbutton' name='8' value='8' id='8' onClick=addKeyPadNumber(this); />" +
-            "<input type='button' class='PINbutton' name='9' value='9' id='9' onClick=addKeyPadNumber(this); />" +
-            "<br>" +
-            "<input type='button' class='PINbutton clear' name='-' value='＊' id='-' onClick=clearForm(this); />" +
-            "<input type='button' class='PINbutton' name='0' value='0' id='0' onClick=addKeyPadNumber(this); />" +
-            "<input type='button' class='PINbutton enter' name='+' value='#' id='+' onClick=submitForm(PINbox); />" +
-        "</form>"
-    );
-}
-
-Keypad.Close = function(data) {
-    $("#keypad").css("display", "none");
-    $.post(`https://${GetParentResourceName()}/padLockClose`);
-    if (data?.error) {
-        $.post(`https://${GetParentResourceName()}/combinationFail`);
+    function setVisible(element, visible) {
+        element.classList.toggle('hidden', !visible);
     }
-}
 
-function addKeyPadNumber(e){
-	//document.getElementById('PINbox').value = document.getElementById('PINbox').value+element.value;
-    var v = $( "#PINbox" ).val();
-    if (v.length < 4) {
-        $( "#PINbox" ).val( v + e.value );
+    function showRoot() {
+        root.classList.add('visible');
+        root.setAttribute('aria-hidden', 'false');
     }
-}
-function clearForm(e){
-	//document.getElementById('PINbox').value = "";
-	$( "#PINbox" ).val( "" );
-}
 
-var CanConfirm = true;
+    function hideRoot() {
+        root.classList.remove('visible');
+        root.setAttribute('aria-hidden', 'true');
+    }
 
-function submitForm(e) {
-    $("#keypad").css("display", "none");
-    $.post(`https://${GetParentResourceName()}/tryCombination`, JSON.stringify({
-        combination: e.value,
-    }));
-};
+    function resetLockpickState() {
+        stopLockpick();
+        submitting = false;
+        round = 1;
+        totalRounds = advanced ? 2 : 3;
+        markerPosition = 3;
+        markerDirection = 1;
+        targetStart = 25 + Math.random() * 50;
+        targetWidth = advanced ? 31 : 25 + Math.random() * 3;
+        speed = advanced ? 0.50 : 0.64;
+        roundLabel.textContent = round;
+        totalLabel.textContent = totalRounds;
+        status.textContent = 'Hit SPACE when the marker is green';
+        status.className = '';
+        toolLabel.textContent = advanced ? 'Advanced lockpick · 2 stages' : 'Standard lockpick · 3 stages';
+        dots.innerHTML = Array.from({ length: totalRounds }, (_, i) => `<span class="${i === 0 ? 'active' : ''}"></span>`).join('');
+        placeTarget();
+        placeMarker();
+    }
 
-$(function () {
+    function placeTarget() {
+        target.style.left = `${targetStart}%`;
+        target.style.width = `${targetWidth}%`;
+    }
 
-    //pop vars
-    pin = $('#pin');
-    cyl = $('#cylinder');
-    driver = $('#driver');
+    function placeMarker() {
+        marker.style.left = `${markerPosition}%`;
+    }
 
-    $('#wrap').hide();
+    function startLockpick() {
+        if (lockpickRunning || submitting || mode !== 'lockpick') return;
+        lockpickRunning = true;
+        status.textContent = 'Moving… hit the green zone';
+        const tick = () => {
+            if (!lockpickRunning || mode !== 'lockpick') return;
+            markerPosition += markerDirection * speed;
+            if (markerPosition >= 97) { markerPosition = 97; markerDirection = -1; }
+            if (markerPosition <= 3) { markerPosition = 3; markerDirection = 1; }
+            placeMarker();
+            lockpickTimer = requestAnimationFrame(tick);
+        };
+        lockpickTimer = requestAnimationFrame(tick);
+    }
 
-    window.addEventListener('message', function(event){
-        var eventData = event.data;
+    function stopLockpick() {
+        lockpickRunning = false;
+        if (lockpickTimer !== null) cancelAnimationFrame(lockpickTimer);
+        lockpickTimer = null;
+    }
 
-        if (eventData.action == "ui") {
-            if (eventData.toggle) {
-                $('#wrap').fadeIn(250);
-                gameOver = false
-                gamePaused = false
-            } else {
-                $('#wrap').fadeOut(50);
-                gameOver = false
-                gamePaused = false
-            }
+    function hitLockpick() {
+        if (mode !== 'lockpick' || submitting) return;
+        if (!lockpickRunning) startLockpick();
+
+        const inside = markerPosition >= targetStart && markerPosition <= targetStart + targetWidth;
+        stopLockpick();
+
+        if (!inside) {
+            status.textContent = 'Missed — keep going';
+            status.className = 'bad';
+            marker.classList.add('shake');
+            setTimeout(() => marker.classList.remove('shake'), 280);
+            setTimeout(() => {
+                if (mode === 'lockpick' && !submitting) startNewRound();
+            }, 420);
+            return;
         }
 
-        if (eventData.action == "openKeypad") {
-            Keypad.Open(eventData);
+        status.textContent = 'Perfect! Pin released';
+        status.className = 'good';
+        marker.classList.add('success');
+        setTimeout(() => marker.classList.remove('success'), 300);
+
+        if (round >= totalRounds) {
+            submitting = true;
+            setTimeout(() => {
+                post('success');
+                closeUI(false);
+            }, 350);
+            return;
         }
 
-        if (eventData.action == "closeKeypad") {
-            Keypad.Close(eventData);
-        }
+        round += 1;
+        setTimeout(startNewRound, 450);
+    }
 
-        if (eventData.action == "openPadlock") {
-            Padlock.Open(eventData);
-        }
+    function startNewRound() {
+        if (mode !== 'lockpick' || submitting) return;
+        roundLabel.textContent = round;
+        dots.querySelectorAll('span').forEach((dot, i) => dot.classList.toggle('active', i === round - 1));
+        targetStart = 25 + Math.random() * 50;
+        targetWidth = advanced ? 31 : 25 + Math.random() * 3;
+        markerPosition = 3;
+        markerDirection = 1;
+        placeTarget();
+        placeMarker();
+        status.className = '';
+        status.textContent = `Stage ${round} · hit the green zone`;
+        startLockpick();
+    }
 
-        if (eventData.action == "closePadlock") {
-            Padlock.Close();
-        }
+    function openLockpick(isAdvanced) {
+        mode = 'lockpick';
+        advanced = !!isAdvanced;
+        combo = '';
+        setVisible(keypadUI, false);
+        setVisible(lockpickUI, true);
+        showRoot();
+        resetLockpickState();
+        startLockpick();
+    }
 
-        if (eventData.action == "kekw") {
-            $("body").css("background-image", "url(`https://i.kym-cdn.com/entries/icons/original/000/031/051/cover4.jpg')");
-            $("body").css("background-size", "cover");
-        }
-    })
-
-    $('body').on('mousemove', function (e) {
-        if (lastMousePos && !gameOver && !gamePaused) {
-            var pinRotChange = (e.clientX - lastMousePos) / mouseSmoothing;
-            pinRot += pinRotChange;
-            pinRot = Util.clamp(pinRot, maxRot, minRot);
-            pin.css({
-                transform: "rotateZ(" + pinRot + "deg)"
-            })
-        }
-        lastMousePos = e.clientX;
-    });
-    $('body').on('mouseleave', function (e) {
-        lastMousePos = 0;
-    });
-
-    $('body').on('keydown', function (e) {
-        if ((e.keyCode == 87 || e.keyCode == 65 || e.keyCode == 83 || e.keyCode == 68 || e.keyCode == 37 || e.keyCode == 39) && !userPushingCyl && !gameOver && !gamePaused) {
-            pushCyl();
-        }
-    });
-
-    $('body').on('keyup', function (e) {
-        if ((e.keyCode == 87 || e.keyCode == 65 || e.keyCode == 83 || e.keyCode == 68 || e.keyCode == 37 || e.keyCode == 39) && !gameOver) {
-            unpushCyl();
-        }
-    });
-
-    //TOUCH HANDLERS
-    $('body').on('touchstart', function (e) {
-        if (!e.touchList) {
-        }
-        else if (e.touchList) {
-        }
-    })
-    
-    document.onkeyup = function (data) {
-        if (data.which == 27 ) {
-            if (CurrentType == "keypad") {
-                Keypad.Close();
-            } else if(CurrentType == "padlock") {
-                Padlock.Close();
-            } else {
-                $.post(`https://${GetParentResourceName()}/exit`);
-            }
-        }
-    };
-}); //docready
-
-//CYL INTERACTIVITY EVENTS
-function pushCyl() {
-    var distFromSolve, cylRotationAllowance;
-    clearInterval(cylRotationInterval);
-    userPushingCyl = true;
-    //set an interval based on keyrepeat that will rotate the cyl forward, and if cyl is at or past maxCylRotation based on pick distance from solve, display "bounce" anim and do damage to pick. If pick is within sweet spot params, allow pick to rotate to maxRot and trigger solve functionality
-
-    //SO...to calculate max rotation, we need to create a linear scale from solveDeg+padding to maxDistFromSolve - if the user is more than X degrees away from solve zone, they are maximally distant and the cylinder cannot travel at all. Let's start with 45deg. So...we need to create a scale and do a linear conversion. If user is at or beyond max, return 0. If user is within padding zone, return 100. Cyl may travel that percentage of maxRot before hitting the damage zone.
-
-    distFromSolve = Math.abs(pinRot - solveDeg) - solvePadding;
-    distFromSolve = Util.clamp(distFromSolve, maxDistFromSolve, 0);
-
-    cylRotationAllowance = Util.convertRanges(distFromSolve, 0, maxDistFromSolve, 1, 0.02); //oldval is distfromsolve, oldmin is....0? oldMax is maxDistFromSolve, newMin is 100 (we are at solve, so cyl may travel 100% of maxRot), newMax is 0 (we are at or beyond max dist from solve, so cyl may not travel at all - UPDATE - must give cyl just a teensy bit of travel so user isn't hammered);
-    cylRotationAllowance = cylRotationAllowance * maxRot;
-
-    cylRotationInterval = setInterval(function () {
-        cylRot += cylRotSpeed;
-        if (cylRot >= maxRot) {
-            cylRot = maxRot;
-            // do happy solvey stuff
-            clearInterval(cylRotationInterval);
-            unlock();
-        }
-        else if (cylRot >= cylRotationAllowance) {
-            cylRot = cylRotationAllowance;
-            // do sad pin-hurty stuff
-            damagePin();
-        }
-
-        cyl.css({
-            transform: "rotateZ(" + cylRot + "deg)"
+    function renderPin() {
+        pinDisplay.querySelectorAll('span').forEach((el, i) => {
+            const filled = i < combo.length;
+            el.textContent = filled ? '●' : '•';
+            el.classList.toggle('filled', filled);
         });
-        driver.css({
-            transform: "rotateZ(" + cylRot + "deg)"
-        });
-    }, keyRepeatRate);
-}
+        pinMessage.textContent = combo.length ? `${combo.length}/4 DIGITS` : 'READY';
+    }
 
-function unpushCyl() {
-    userPushingCyl = false;
-    //set an interval based on keyrepeat that will rotate the cyl backward, and if cyl is at or past origin, set to origin and stop.
-    clearInterval(cylRotationInterval);
-    cylRotationInterval = setInterval(function () {
-        cylRot -= cylRotSpeed;
-        cylRot = Math.max(cylRot, 0);
-        cyl.css({
-            transform: "rotateZ(" + cylRot + "deg)"
-        })
-        driver.css({
-            transform: "rotateZ(" + cylRot + "deg)"
-        })
-        if (cylRot <= 0) {
-            cylRot = 0;
-            clearInterval(cylRotationInterval);
+    function openKeypad() {
+        mode = 'keypad';
+        submitting = false;
+        combo = '';
+        setVisible(lockpickUI, false);
+        setVisible(keypadUI, true);
+        showRoot();
+        keypadUI.classList.remove('invalid');
+        renderPin();
+    }
+
+    function submitKeypad() {
+        if (mode !== 'keypad' || submitting) return;
+        if (combo.length !== 4) {
+            pinMessage.textContent = 'ENTER 4 DIGITS';
+            keypadUI.classList.remove('invalid');
+            void keypadUI.offsetWidth;
+            keypadUI.classList.add('invalid');
+            return;
         }
-    }, keyRepeatRate);
-}
+        submitting = true;
+        pinMessage.textContent = 'CHECKING CODE…';
+        post('tryCombination', { combination: combo });
+        closeUI(false);
+    }
 
-//PIN AND SOLVE EVENTS
+    function addDigit(digit) {
+        if (mode !== 'keypad' || submitting || !/^[0-9]$/.test(String(digit)) || combo.length >= 4) return;
+        combo += digit;
+        renderPin();
+    }
 
-function damagePin() {
-    if (!pinLastDamaged || Date.now() - pinLastDamaged > pinDamageInterval) {
-        var tl = new TimelineLite();
-        pinHealth -= pinDamage;
-        pinLastDamaged = Date.now()
+    function backspace() {
+        if (mode !== 'keypad' || submitting) return;
+        combo = combo.slice(0, -1);
+        renderPin();
+    }
 
-        //pin damage/lock jiggle animation
-        tl.to(pin, (pinDamageInterval / 4) / 1000, {
-            rotationZ: pinRot - 2
-        });
-        tl.to(pin, (pinDamageInterval / 4) / 1000, {
-            rotationZ: pinRot
-        });
-        if (pinHealth <= 0) {
-            breakPin();
+    function clearKeypad() {
+        if (mode !== 'keypad' || submitting) return;
+        combo = '';
+        renderPin();
+        pinMessage.textContent = 'CLEARED';
+    }
+
+    function closeUI(sendClose = true) {
+        const oldMode = mode;
+        stopLockpick();
+        mode = null;
+        submitting = false;
+        setVisible(lockpickUI, false);
+        setVisible(keypadUI, false);
+        hideRoot();
+        if (sendClose) {
+            if (oldMode === 'lockpick') post('exit');
+            if (oldMode === 'keypad') post('padLockClose');
         }
     }
-}
 
-function breakPin() {
-    var tl, pinTop, pinBott;
-    gamePaused = true;
-    clearInterval(cylRotationInterval);
-    numPins--;
-    $('span').text(numPins)
-    pinTop = pin.find('.top');
-    pinBott = pin.find('.bott');
-    tl = new TimelineLite();
-    tl.to(pinTop, 0.7, {
-        rotationZ: -400,
-        x: -200,
-        y: -100,
-        opacity: 0
+    document.getElementById('lockpick-close').addEventListener('click', () => closeUI());
+    document.getElementById('keypad-close').addEventListener('click', () => closeUI());
+
+    document.getElementById('keypad-grid').addEventListener('click', (event) => {
+        const button = event.target.closest('button');
+        if (!button) return;
+        if (button.dataset.key) addDigit(button.dataset.key);
+        else if (button.dataset.action === 'clear') clearKeypad();
+        else if (button.dataset.action === 'enter') submitKeypad();
     });
-    tl.to(pinBott, 0.7, {
-        rotationZ: 400,
-        x: 200,
-        y: 100,
-        opacity: 0,
-        onComplete: function () {
-            if (numPins > 0) {
-                gamePaused = false;
-                reset();
-            } else {
-                outOfPins();
-            }
+
+    document.addEventListener('keydown', (event) => {
+        if (!mode) return;
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            closeUI();
+            return;
         }
-    }, 0)
-    tl.play();
-}
-
-function reset() {
-    cylRot = 0;
-    pinHealth = 100;
-    pinRot = 0;
-    pin.css({
-        transform: "rotateZ(" + pinRot + "deg)"
-    })
-    cyl.css({
-        transform: "rotateZ(" + cylRot + "deg)"
-    })
-    driver.css({
-        transform: "rotateZ(" + cylRot + "deg)"
-    })
-    TweenLite.to(pin.find('.top'), 0, {
-        rotationZ: 0,
-        x: 0,
-        y: 0,
-        opacity: 1
+        if (mode === 'lockpick') {
+            if (event.code === 'Space' || event.key === 'Enter') {
+                event.preventDefault();
+                hitLockpick();
+            }
+            return;
+        }
+        if (mode === 'keypad') {
+            if (/^[0-9]$/.test(event.key)) { event.preventDefault(); addDigit(event.key); }
+            else if (event.key === 'Backspace' || event.key === 'Delete') { event.preventDefault(); backspace(); }
+            else if (event.key === 'Enter') { event.preventDefault(); submitKeypad(); }
+        }
     });
-    TweenLite.to(pin.find('.bott'), 0, {
-        rotationZ: 0,
-        x: 0,
-        y: 0,
-        opacity: 1
+
+    window.addKeyPadNumber = (button) => addDigit(button?.value || '');
+    window.clearForm = clearKeypad;
+    window.submitForm = submitKeypad;
+
+    window.addEventListener('message', (event) => {
+        const data = event.data || {};
+        switch (data.action) {
+            case 'ui':
+                if (data.toggle) openLockpick(!!data.advanced);
+                else closeUI(false);
+                break;
+            case 'openKeypad':
+                openKeypad();
+                break;
+            case 'closeKeypad':
+                closeUI(false);
+                break;
+            case 'openPadlock':
+                break;
+            case 'closePadlock':
+                closeUI(false);
+                break;
+        }
     });
-}
-
-function outOfPins() {
-    gameOver = true;
-    $.post(`https://${GetParentResourceName()}/fail`);
-    setTimeout(function(){
-        reset()
-    }, 250)
-}
-
-function unlock() {
-    gameOver = true;
-    $.post(`https://${GetParentResourceName()}/success`);
-    solveDeg = (Math.random() * 180) - 90
-    solvePadding = 4
-    maxDistFromSolve = 45
-    pinRot = 1
-    cylRot = 1
-    lastMousePos = 0
-}
-
-//UTIL
-Util = {};
-Util.clamp = function (val, max, min) {
-    return Math.min(Math.max(val, min), max);
-}
-Util.convertRanges = function (OldValue, OldMin, OldMax, NewMin, NewMax) {
-    return (((OldValue - OldMin) * (NewMax - NewMin)) / (OldMax - OldMin)) + NewMin
-}
+})();

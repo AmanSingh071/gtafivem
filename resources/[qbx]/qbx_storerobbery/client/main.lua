@@ -7,10 +7,11 @@ local currentCombination
 local function startLockpick(bool)
     SetNuiFocus(bool, bool)
     SendNUIMessage({
-        action = "ui",
+        action = 'ui',
         toggle = bool,
+        advanced = isUsingAdvanced or false,
     })
-    SetCursorLocation(0.5, 0.2)
+    if bool then SetCursorLocation(0.5, 0.5) end
 end
 
 local function openingRegisterHandler(lockpickTime)
@@ -41,36 +42,24 @@ local function safeAnim()
 end
 
 local function checkInteractStatus(register)
-    if sharedConfig.registers[register].robbed then
-        return false
-    end
-
+    if sharedConfig.registers[register].robbed then return false end
     local leoCount = lib.callback.await('qbx_storerobbery:server:leoCount', false)
-    if leoCount >= sharedConfig.minimumCops then
-        return true
-    end
-
-    return false
+    return leoCount >= sharedConfig.minimumCops
 end
 
 local function alertPolice()
     local hours = GetClockHours()
     local chance = config.policeAlertChance
-
-    if qbx.isWearingGloves() or hours >= 1 and hours <= 6 then
+    if qbx.isWearingGloves() or (hours >= 1 and hours <= 6) then
         chance = config.policeNightAlertChance
     end
-
-    if math.random() <= chance then
-        TriggerServerEvent('police:server:policeAlert')
-    end
+    if math.random() <= chance then TriggerServerEvent('police:server:policeAlert') end
 end
 
 local function dropFingerprint()
     if qbx.isWearingGloves() then return end
     if config.fingerprintChance > math.random(0, 100) then
-        local coords = GetEntityCoords(cache.ped)
-        TriggerServerEvent('evidence:server:CreateFingerDrop', coords)
+        TriggerServerEvent('evidence:server:CreateFingerDrop', GetEntityCoords(cache.ped))
     end
 end
 
@@ -82,10 +71,8 @@ end)
 RegisterNetEvent('qbx_storerobbery:client:initSafeAttempt', function(closestSafeIndex, combination)
     currentCombination = combination
     if sharedConfig.safes[closestSafeIndex].type == 'keypad' then
-        SendNUIMessage({
-            action = 'openKeypad',
-        })
         SetNuiFocus(true, true)
+        SendNUIMessage({ action = 'openKeypad' })
     else
         TriggerEvent('SafeCracker:StartMinigame', currentCombination)
     end
@@ -107,9 +94,7 @@ end)
 
 lib.callback.register('qbx_storerobbery:client:getAlertChance', function()
     local chance = config.policeAlertChance
-    if GetClockHours() >= 1 and GetClockHours() <= 6 then
-        chance = config.policeNightAlertChance
-    end
+    if GetClockHours() >= 1 and GetClockHours() <= 6 then chance = config.policeNightAlertChance end
     return chance
 end)
 
@@ -122,16 +107,11 @@ RegisterNUICallback('success', function(_, cb)
         label = locale('text.emptying_the_register'),
         useWhileDead = false,
         canCancel = true,
-        disable = {
-            move = true,
-            car = true,
-            mouse = false,
-            combat = true
-        }
-    }) then -- if completed
+        disable = { move = true, car = true, mouse = false, combat = true }
+    }) then
         openingRegister = false
         TriggerServerEvent('qbx_storerobbery:server:registerOpened', true)
-    else -- if canceled
+    else
         openingRegister = false
         TriggerServerEvent('qbx_storerobbery:server:registerCanceled')
         exports.qbx_core:Notify(locale('error.process_canceled'), 'error')
@@ -168,20 +148,16 @@ end)
 
 RegisterNUICallback('tryCombination', function(data, cb)
     SetNuiFocus(false, false)
-    if tonumber(data.combination) == currentCombination then
-        TriggerServerEvent('qbx_storerobbery:server:safeCracked')
-        SendNUIMessage({
-            action = "closeKeypad",
-            error = false
-        })
+    local entered = tonumber(data and data.combination)
+    if entered and entered == tonumber(currentCombination) then
+        TriggerServerEvent('qbx_storerobbery:server:safeCracked', entered)
+        SendNUIMessage({ action = 'closeKeypad', error = false })
         safeAnim()
     else
         TriggerServerEvent('qbx_storerobbery:server:failedSafeCracking')
-        SendNUIMessage({
-            action = "closeKeypad",
-            error = true
-        })
+        SendNUIMessage({ action = 'closeKeypad', error = true })
     end
+    currentCombination = nil
     cb('ok')
 end)
 
@@ -193,17 +169,13 @@ local function createRegisters()
                 size = vec3(1.5, 1.5, 1.5),
                 rotation = 0.0,
                 debug = config.debugPoly,
-                options = {
-                    {
-                        name = k..'_register',
-                        icon = 'cash-register',
-                        label = 'Open Register',
-                        canInteract = function()
-                            return checkInteractStatus(k)
-                        end,
-                        serverEvent = 'qbx_storerobbery:server:checkStatus',
-                    }
-                }
+                options = {{
+                    name = k .. '_register',
+                    icon = 'cash-register',
+                    label = 'Open Register',
+                    canInteract = function() return checkInteractStatus(k) end,
+                    serverEvent = 'qbx_storerobbery:server:checkStatus',
+                }}
             })
         end
     end)
@@ -214,32 +186,25 @@ AddEventHandler('onClientResourceStart', function(resource)
     createRegisters()
 end)
 
--- Update so that the target doesnt show also
 CreateThread(function()
     local hasShownText
     while true do
         local coords = GetEntityCoords(cache.ped)
-        local time = 800
-        local nearby = false
+        local time, nearby = 800, false
         for i = 1, #sharedConfig.registers do
             if #(coords - sharedConfig.registers[i].coords) <= 1.4 and sharedConfig.registers[i].robbed then
-                time = 0
-                nearby = true
+                time, nearby = 0, true
                 if config.useDrawText then
                     if not hasShownText then
                         hasShownText = true
-                        lib.showTextUI(locale('text.register_empty'), {position = 'left-center'})
-                        exports['qbx-core']:DrawText()
+                        lib.showTextUI(locale('text.register_empty'), { position = 'left-center' })
                     end
                 else
-                    qbx.drawText3d({text = locale('text.register_empty'), coords = sharedConfig.registers[i].coords})
+                    qbx.drawText3d({ text = locale('text.register_empty'), coords = sharedConfig.registers[i].coords })
                 end
             end
         end
-        if not nearby and hasShownText then
-            hasShownText = false
-            lib.hideTextUI()
-        end
+        if not nearby and hasShownText then hasShownText = false lib.hideTextUI() end
         Wait(time)
     end
 end)
@@ -248,28 +213,23 @@ CreateThread(function()
     local hasShownText
     while true do
         local coords = GetEntityCoords(cache.ped)
-        local time = 800
-        local nearby = false
-        local text
+        local time, nearby, text = 800, false, nil
         for i = 1, #sharedConfig.safes do
             if #(coords - sharedConfig.safes[i].coords) <= 1.4 then
-                time = 0
-                nearby = true
+                time, nearby = 0, true
                 if sharedConfig.safes[i].robbed then
                     text = locale('text.safe_opened')
                 else
                     text = locale('text.try_combination')
-                    if IsControlJustPressed(0, 38) then
-                        TriggerServerEvent('qbx_storerobbery:server:trySafe')
-                    end
+                    if IsControlJustPressed(0, 38) then TriggerServerEvent('qbx_storerobbery:server:trySafe') end
                 end
                 if config.useDrawText then
                     if not hasShownText then
                         hasShownText = true
-                        lib.showTextUI(text, {position = 'left-center'})
+                        lib.showTextUI(text, { position = 'left-center' })
                     end
                 else
-                    qbx.drawText3d({text = text, coords = sharedConfig.safes[i].coords})
+                    qbx.drawText3d({ text = text, coords = sharedConfig.safes[i].coords })
                 end
             end
         end
