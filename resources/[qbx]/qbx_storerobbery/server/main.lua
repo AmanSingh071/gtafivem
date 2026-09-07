@@ -3,6 +3,7 @@ local sharedConfig = require 'config.shared'
 local startedRegister = {}
 local startedSafe = {}
 local safeCodes = {}
+local playerSafeProgress = {}
 
 local function getClosestRegister(coords)
     local closest
@@ -35,7 +36,81 @@ end
 local function resetSafe(index)
     if not index or not sharedConfig.safes[index] then return end
     sharedConfig.safes[index].robbed = false
+    safeCodes[index] = nil
     broadcastState()
+end
+
+local function generateUniqueKeypadCode()
+    local used = {}
+    for _, code in pairs(safeCodes) do
+        if type(code) == 'number' then used[code] = true end
+    end
+    local code
+    repeat code = math.random(1000, 9999) until not used[code]
+    return code
+end
+
+local function generateSafeCode(index)
+    local Safe = sharedConfig.safes[index]
+    if not Safe then return nil end
+
+    if Safe.type == 'keypad' then
+        return generateUniqueKeypadCode()
+    end
+
+    -- Keep padlock combinations unique too. Each safe gets its own combination.
+    local code
+    repeat
+        code = {
+            math.random(150, 450), math.random(1.0, 100.0), math.random(360, 450),
+            math.random(300.0, 340.0), math.random(350, 400), math.random(320.0, 340.0), math.random(350, 600)
+        }
+        local duplicate = false
+        for _, existing in pairs(safeCodes) do
+            if type(existing) == 'table' then
+                duplicate = true
+                for i = 1, math.min(#code, #existing) do
+                    if code[i] ~= existing[i] then duplicate = false break end
+                end
+                if duplicate then break end
+            end
+        end
+        if not duplicate then return code end
+    until false
+end
+
+local function ensureSafeCode(index)
+    if not safeCodes[index] then safeCodes[index] = generateSafeCode(index) end
+    return safeCodes[index]
+end
+
+local function getReadableCode(index)
+    local code = ensureSafeCode(index)
+    if sharedConfig.safes[index].type == 'keypad' then
+        return string.format('%04d', code)
+    end
+    return table.concat({
+        tostring(math.floor((code[1] % 360) / 3.60)),
+        tostring(math.floor((code[2] % 360) / 3.60)),
+        tostring(math.floor((code[3] % 360) / 3.60)),
+        tostring(math.floor((code[4] % 360) / 3.60)),
+        tostring(math.floor((code[5] % 360) / 3.60))
+    }, '-')
+end
+
+local function playerHasSafeNote(src, safeIndex)
+    local slots = exports.ox_inventory:Search(src, 'slots', 'stickynote')
+    if not slots then return false end
+    local expected = getReadableCode(safeIndex)
+    for _, slot in pairs(slots) do
+        local metadata = slot.metadata or {}
+        local label = tostring(metadata.label or '')
+        local description = tostring(metadata.description or '')
+        if label:find(expected, 1, true) or description:find(expected, 1, true) then
+            return true
+        end
+    end
+    return false
 end
 
 RegisterNetEvent('qbx_storerobbery:server:checkStatus', function()
@@ -114,28 +189,24 @@ RegisterNetEvent('qbx_storerobbery:server:registerOpened', function(isDone)
 
     player.Functions.AddMoney('cash', math.random(config.registerReward.min, config.registerReward.max))
 
-    -- Every successful register hack gives the combination clue (100%).
+    -- 100% chance: every successful register hack produces a clue for its linked safe.
     local safeIndex = sharedConfig.registers[index].safeKey
-    if safeIndex and safeCodes[safeIndex] then
-        local code = safeCodes[safeIndex]
-        local info
-        local readableCode
-        if sharedConfig.safes[safeIndex].type == 'keypad' then
-            readableCode = tostring(code)
-            info = { label = locale('text.safe_code') .. readableCode }
-        else
-            readableCode = tostring(math.floor((code[1] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[2] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[3] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[4] % 360) / 3.60)) .. '-' .. tostring(math.floor((code[5] % 360) / 3.60))
-            info = { label = locale('text.safe_code') .. readableCode }
-        end
-
+    if safeIndex and sharedConfig.safes[safeIndex] then
+        local readableCode = getReadableCode(safeIndex)
+        local info = {
+            label = locale('text.safe_code') .. readableCode,
+            description = ('Safe %s combination: %s'):format(safeIndex, readableCode),
+            safeIndex = safeIndex,
+            safeCode = readableCode,
+        }
         local added = exports.ox_inventory:AddItem(src, 'stickynote', 1, info)
         if added then
-            exports.qbx_core:Notify(src, 'Safe combination found. Check your sticky note.', 'success')
+            exports.qbx_core:Notify(src, ('Safe %s clue acquired. Check your sticky note.'):format(safeIndex), 'success')
         else
-            exports.qbx_core:Notify(src, 'SAFE COMBINATION: ' .. readableCode, 'success', 12000)
+            -- Inventory capacity is not treated as a random failure: the code is shown so
+            -- the player always receives the clue information even when the inventory is full.
+            exports.qbx_core:Notify(src, ('SAFE %s COMBINATION: %s'):format(safeIndex, readableCode), 'success', 12000)
         end
-    else
-        exports.qbx_core:Notify(src, 'The safe clue could not be generated. Please report this.', 'error')
     end
 
     startedRegister[src] = nil
@@ -148,7 +219,22 @@ RegisterNetEvent('qbx_storerobbery:server:trySafe', function()
     local ped = GetPlayerPed(src)
     if ped <= 0 or startedSafe[src] then return end
     local index = getClosestSafe(GetEntityCoords(ped))
-    if not index or sharedConfig.safes[index].robbed or not safeCodes[index] then return end
+    if not index or sharedConfig.safes[index].robbed then return end
+
+    -- Safe progression is sequential per player: safe 2 cannot be opened before safe 1,
+    -- safe 3 cannot be opened before safe 2, etc. Missing map indices are skipped.
+    local progress = playerSafeProgress[src] or 0
+    local required = progress + 1
+    while required <= #sharedConfig.safes and not sharedConfig.safes[required] do required = required + 1 end
+    if index ~= required then
+        exports.qbx_core:Notify(src, ('You must open Safe %s first.'):format(required), 'error')
+        return
+    end
+
+    if not playerHasSafeNote(src, index) then
+        exports.qbx_core:Notify(src, 'You need the matching sticky note combination for this safe.', 'error')
+        return
+    end
 
     local leoCount = exports.qbx_core:GetDutyCountType('leo')
     if leoCount < sharedConfig.minimumCops then
@@ -156,10 +242,11 @@ RegisterNetEvent('qbx_storerobbery:server:trySafe', function()
         return
     end
 
+    local code = ensureSafeCode(index)
     startedSafe[src] = index
     sharedConfig.safes[index].robbed = true
     broadcastState()
-    TriggerClientEvent('qbx_storerobbery:client:initSafeAttempt', src, index, safeCodes[index])
+    TriggerClientEvent('qbx_storerobbery:client:initSafeAttempt', src, index, code)
 end)
 
 RegisterNetEvent('qbx_storerobbery:server:failedSafeCracking', function()
@@ -186,12 +273,18 @@ local function completeKeypadSafe(src, enteredCode)
         return
     end
 
-    if sharedConfig.safes[index].type == 'keypad' and tonumber(enteredCode) ~= tonumber(safeCodes[index]) then
-        TriggerClientEvent('qbx_storerobbery:client:safeResult', src, false)
+    if not playerHasSafeNote(src, index) then
+        TriggerClientEvent('qbx_storerobbery:client:safeResult', src, false, 'You need the matching safe note.')
         return
     end
 
-    TriggerClientEvent('qbx_storerobbery:client:safeResult', src, true)
+    local expected = ensureSafeCode(index)
+    if sharedConfig.safes[index].type == 'keypad' and tonumber(enteredCode) ~= tonumber(expected) then
+        TriggerClientEvent('qbx_storerobbery:client:safeResult', src, false, 'Incorrect code — try again.')
+        return
+    end
+
+    TriggerClientEvent('qbx_storerobbery:client:safeResult', src, true, 'Safe unlocked!')
 
     local worth = math.random(config.safeReward.markedBillsWorth.min, config.safeReward.markedBillsWorth.max)
     local amount = math.random(config.safeReward.markedBillsAmount.min, config.safeReward.markedBillsAmount.max)
@@ -202,7 +295,7 @@ local function completeKeypadSafe(src, enteredCode)
         if config.safeReward.chanceAtSpecial / 2 > math.random(0, 100) then player.Functions.AddItem('goldbar', config.safeReward.goldbarAmount) end
     end
 
-    -- The safe is the final loot stage: spawn the getaway helicopter, then the police pursuit.
+    playerSafeProgress[src] = index
     TriggerClientEvent('qbx_storerobbery:client:startGetaway', src, index)
 
     startedSafe[src] = nil
@@ -214,11 +307,12 @@ RegisterNetEvent('qbx_storerobbery:server:checkSafeCombination', function(entere
     completeKeypadSafe(source, enteredCode)
 end)
 
-RegisterNetEvent('qbx_storerobbery:server:safeCracked', function(enteredCode)
-    completeKeypadSafe(source, enteredCode)
+RegisterNetEvent('qbx_storerobbery:server:safeCracked', function()
+    completeKeypadSafe(source, nil)
 end)
 
 AddEventHandler('playerJoining', function()
+    playerSafeProgress[source] = 0
     TriggerClientEvent('qbx_storerobbery:client:updatedRobbables', source, sharedConfig.registers, sharedConfig.safes)
 end)
 
@@ -228,6 +322,7 @@ AddEventHandler('playerDropped', function()
     local safe = startedSafe[src]
     startedRegister[src] = nil
     startedSafe[src] = nil
+    playerSafeProgress[src] = nil
     if register then resetRegister(register) end
     if safe then resetSafe(safe) end
 end)
@@ -237,19 +332,8 @@ lib.callback.register('qbx_storerobbery:server:leoCount', function()
 end)
 
 CreateThread(function()
-    while true do
-        safeCodes = {}
-        for i = 1, #sharedConfig.safes do
-            local Safe = sharedConfig.safes[i]
-            if Safe.type == 'padlock' then
-                safeCodes[i] = {
-                    math.random(150, 450), math.random(1.0, 100.0), math.random(360, 450),
-                    math.random(300.0, 340.0), math.random(350, 400), math.random(320.0, 340.0), math.random(350, 600)
-                }
-            elseif Safe.type == 'keypad' then
-                safeCodes[i] = math.random(1000, 9999)
-            end
-        end
-        Wait(config.safeRefresh.min)
+    math.randomseed(os.time())
+    for i = 1, #sharedConfig.safes do
+        ensureSafeCode(i)
     end
 end)
