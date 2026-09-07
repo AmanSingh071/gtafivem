@@ -12,7 +12,11 @@ shared_scripts {
     '@qbx_core/modules/lib.lua',
 }
 
-client_script 'client/main.lua'
+client_scripts {
+    'client/main.lua',
+    'client/air_pursuit.lua',
+}
+
 server_script 'server/main.lua'
 
 ui_page 'html/index.html'
