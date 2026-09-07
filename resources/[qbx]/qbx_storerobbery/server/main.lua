@@ -5,6 +5,12 @@ local startedSafe = {}
 local safeCodes = {}
 local safeCodeUsed = {}
 
+-- Optional sequential safe chains. These are INTERNAL ids; players only see
+-- the friendly safe number stored on the clue.
+local safeRequires = {
+    [3] = 2,
+}
+
 local function getClosestRegister(coords)
     local closest
     for i = 1, #sharedConfig.registers do
@@ -54,12 +60,8 @@ end
 local function generateSafeCode(index)
     local safe = sharedConfig.safes[index]
     if not safe then return nil end
+    if safe.type == 'keypad' then return generateUniqueKeypadCode() end
 
-    if safe.type == 'keypad' then
-        return generateUniqueKeypadCode()
-    end
-
-    -- Unique combination for non-keypad safes as well.
     local code
     repeat
         code = {
@@ -75,6 +77,7 @@ local function generateSafeCode(index)
 end
 
 local function ensureSafeCode(index)
+    if not sharedConfig.safes[index] then return nil end
     if not safeCodes[index] then safeCodes[index] = generateSafeCode(index) end
     return safeCodes[index]
 end
@@ -82,9 +85,7 @@ end
 local function getReadableCode(index)
     local safe = sharedConfig.safes[index]
     local code = ensureSafeCode(index)
-    if safe.type == 'keypad' then
-        return string.format('%04d', code)
-    end
+    if safe.type == 'keypad' then return string.format('%04d', code) end
     return table.concat({
         tostring(math.floor((code[1] % 360) / 3.60)),
         tostring(math.floor((code[2] % 360) / 3.60)),
@@ -100,9 +101,7 @@ local function playerHasSafeNote(src, safeIndex)
     local expected = getReadableCode(safeIndex)
     for _, slot in pairs(slots) do
         local metadata = slot.metadata or {}
-        local noteSafe = tonumber(metadata.safeIndex)
-        local noteCode = tostring(metadata.safeCode or '')
-        if noteSafe == safeIndex and noteCode == expected then return true end
+        if tonumber(metadata.safeIndex) == safeIndex and tostring(metadata.safeCode or '') == expected then return true end
     end
     return false
 end
@@ -143,15 +142,13 @@ RegisterNetEvent('qbx_storerobbery:server:registerFailed', function(isUsingAdvan
         resetRegister(index)
         return
     end
-
     startedRegister[src] = nil
-    sharedConfig.registers[index].robbed = false
+    resetRegister(index)
     local removalChance = isUsingAdvanced and math.random(0, 30) or math.random(0, 60)
     if removalChance > math.random(0, 100) then
         exports.qbx_core:Notify(src, locale('error.lockpick_broken'), 'error')
         exports.ox_inventory:RemoveItem(src, isUsingAdvanced and 'advancedlockpick' or 'lockpick', 1)
     end
-    broadcastState()
 end)
 
 RegisterNetEvent('qbx_storerobbery:server:registerExited', function()
@@ -183,22 +180,21 @@ RegisterNetEvent('qbx_storerobbery:server:registerOpened', function(isDone)
 
     player.Functions.AddMoney('cash', math.random(config.registerReward.min, config.registerReward.max))
 
-    -- One live combination per safe. All notes for the same safe contain the same
-    -- current code; different safes always have different codes.
     local safeIndex = sharedConfig.registers[index].safeKey
     if safeIndex and sharedConfig.safes[safeIndex] then
         local readableCode = getReadableCode(safeIndex)
+        local displaySafe = sharedConfig.safes[safeIndex].displayName or ('Safe ' .. tostring(safeIndex))
         local info = {
-            label = ('SAFE %s • %s'):format(safeIndex, readableCode),
-            description = ('Safe %s combination: %s'):format(safeIndex, readableCode),
+            label = ('%s • %s'):format(displaySafe, readableCode),
+            description = ('Combination for %s: %s'):format(displaySafe, readableCode),
             safeIndex = safeIndex,
             safeCode = readableCode,
         }
         local added = exports.ox_inventory:AddItem(src, 'stickynote', 1, info)
         if added then
-            exports.qbx_core:Notify(src, ('Safe %s code found. Check your sticky note.'):format(safeIndex), 'success')
+            exports.qbx_core:Notify(src, ('%s code found. Check your sticky note.'):format(displaySafe), 'success', 8000)
         else
-            exports.qbx_core:Notify(src, ('SAFE %s COMBINATION: %s'):format(safeIndex, readableCode), 'success', 12000)
+            exports.qbx_core:Notify(src, ('%s combination: %s'):format(displaySafe, readableCode), 'success', 12000)
         end
     end
 
@@ -214,8 +210,14 @@ RegisterNetEvent('qbx_storerobbery:server:trySafe', function()
     local index = getClosestSafe(GetEntityCoords(ped))
     if not index or sharedConfig.safes[index].robbed then return end
 
+    local required = safeRequires[index]
+    if required and sharedConfig.safes[required] and not sharedConfig.safes[required].robbed then
+        exports.qbx_core:Notify(src, ('Open Safe %s first.'):format(sharedConfig.safes[required].displayName or required), 'error')
+        return
+    end
+
     if not playerHasSafeNote(src, index) then
-        exports.qbx_core:Notify(src, ('This safe is locked. Rob its linked register and find the Safe %s code.'):format(index), 'error')
+        exports.qbx_core:Notify(src, ('You need the sticky note for %s.'):format(sharedConfig.safes[index].displayName or ('Safe ' .. index)), 'error')
         return
     end
 
@@ -227,16 +229,12 @@ RegisterNetEvent('qbx_storerobbery:server:trySafe', function()
 
     local code = ensureSafeCode(index)
     startedSafe[src] = index
-    sharedConfig.safes[index].robbed = true
-    broadcastState()
+    -- Do NOT mark robbed yet. A wrong code/cancel must allow another attempt.
     TriggerClientEvent('qbx_storerobbery:client:initSafeAttempt', src, index, code)
 end)
 
 RegisterNetEvent('qbx_storerobbery:server:failedSafeCracking', function()
-    local src = source
-    local index = startedSafe[src]
-    startedSafe[src] = nil
-    if index then resetSafe(index) end
+    startedSafe[source] = nil
 end)
 
 local function completeSafe(src, enteredCode)
@@ -247,12 +245,12 @@ local function completeSafe(src, enteredCode)
 
     if #(GetEntityCoords(ped) - sharedConfig.safes[index].coords) > 2.5 then
         startedSafe[src] = nil
-        resetSafe(index)
         return
     end
 
-    if not sharedConfig.safes[index].robbed then
+    if sharedConfig.safes[index].robbed then
         startedSafe[src] = nil
+        TriggerClientEvent('qbx_storerobbery:client:safeResult', src, false, 'This safe has already been looted.')
         return
     end
 
@@ -262,11 +260,13 @@ local function completeSafe(src, enteredCode)
     end
 
     local expected = ensureSafeCode(index)
-    if sharedConfig.safes[index].type == 'keypad' and tonumber(enteredCode) ~= tonumber(expected) then
+    if not enteredCode or tonumber(enteredCode) ~= tonumber(expected) then
         TriggerClientEvent('qbx_storerobbery:client:safeResult', src, false, 'Incorrect code — try again.')
         return
     end
 
+    sharedConfig.safes[index].robbed = true
+    startedSafe[src] = nil
     TriggerClientEvent('qbx_storerobbery:client:safeResult', src, true, 'Safe unlocked!')
 
     local worth = math.random(config.safeReward.markedBillsWorth.min, config.safeReward.markedBillsWorth.max)
@@ -279,7 +279,6 @@ local function completeSafe(src, enteredCode)
     end
 
     TriggerClientEvent('qbx_storerobbery:client:startGetaway', src, index)
-    startedSafe[src] = nil
     broadcastState()
     SetTimeout(math.random(config.safeRefresh.min, config.safeRefresh.max), function() resetSafe(index) end)
 end
@@ -303,7 +302,10 @@ AddEventHandler('playerDropped', function()
     startedRegister[src] = nil
     startedSafe[src] = nil
     if register then resetRegister(register) end
-    if safe then resetSafe(safe) end
+    if safe then
+        -- A player abandoning an active safe attempt must not consume it.
+        startedSafe[src] = nil
+    end
 end)
 
 lib.callback.register('qbx_storerobbery:server:leoCount', function()
@@ -312,6 +314,4 @@ end)
 
 CreateThread(function()
     math.randomseed(os.time() + GetGameTimer())
-    -- Codes are intentionally generated lazily when a register is successfully
-    -- emptied. This makes every robbery cycle get a fresh randomized code.
 end)
