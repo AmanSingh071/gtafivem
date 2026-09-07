@@ -4,14 +4,21 @@ local isUsingAdvanced
 local openingRegister
 local currentCombination
 
+local function releaseNuiFocus()
+    SetNuiFocus(false, false)
+    SetNuiFocusKeepInput(false)
+end
+
 local function startLockpick(bool)
-    SetNuiFocus(bool, bool)
-    SendNUIMessage({
-        action = 'ui',
-        toggle = bool,
-        advanced = isUsingAdvanced or false,
-    })
-    if bool then SetCursorLocation(0.5, 0.5) end
+    if bool then
+        SetNuiFocus(true, true)
+        SetNuiFocusKeepInput(false)
+        SendNUIMessage({ action = 'ui', toggle = true, advanced = isUsingAdvanced or false })
+        SetCursorLocation(0.5, 0.5)
+    else
+        releaseNuiFocus()
+        SendNUIMessage({ action = 'ui', toggle = false })
+    end
 end
 
 local function openingRegisterHandler(lockpickTime)
@@ -50,17 +57,13 @@ end
 local function alertPolice()
     local hours = GetClockHours()
     local chance = config.policeAlertChance
-    if qbx.isWearingGloves() or (hours >= 1 and hours <= 6) then
-        chance = config.policeNightAlertChance
-    end
+    if qbx.isWearingGloves() or (hours >= 1 and hours <= 6) then chance = config.policeNightAlertChance end
     if math.random() <= chance then TriggerServerEvent('police:server:policeAlert') end
 end
 
 local function dropFingerprint()
     if qbx.isWearingGloves() then return end
-    if config.fingerprintChance > math.random(0, 100) then
-        TriggerServerEvent('evidence:server:CreateFingerDrop', GetEntityCoords(cache.ped))
-    end
+    if config.fingerprintChance > math.random(0, 100) then TriggerServerEvent('evidence:server:CreateFingerDrop', GetEntityCoords(cache.ped)) end
 end
 
 RegisterNetEvent('qbx_storerobbery:client:initRegisterAttempt', function(isAdvanced)
@@ -72,13 +75,17 @@ RegisterNetEvent('qbx_storerobbery:client:initSafeAttempt', function(closestSafe
     currentCombination = combination
     if sharedConfig.safes[closestSafeIndex].type == 'keypad' then
         SetNuiFocus(true, true)
+        SetNuiFocusKeepInput(false)
         SendNUIMessage({ action = 'openKeypad' })
+        SetCursorLocation(0.5, 0.5)
     else
+        releaseNuiFocus()
         TriggerEvent('SafeCracker:StartMinigame', currentCombination)
     end
 end)
 
 RegisterNetEvent('SafeCracker:EndMinigame', function(hasWon)
+    releaseNuiFocus()
     if hasWon then
         TriggerServerEvent('qbx_storerobbery:server:safeCracked')
         safeAnim()
@@ -99,7 +106,7 @@ lib.callback.register('qbx_storerobbery:client:getAlertChance', function()
 end)
 
 RegisterNUICallback('success', function(_, cb)
-    startLockpick(false)
+    releaseNuiFocus()
     openingRegisterHandler(config.openRegisterTime)
     alertPolice()
     if lib.progressBar({
@@ -116,11 +123,12 @@ RegisterNUICallback('success', function(_, cb)
         TriggerServerEvent('qbx_storerobbery:server:registerCanceled')
         exports.qbx_core:Notify(locale('error.process_canceled'), 'error')
     end
+    releaseNuiFocus()
     cb('ok')
 end)
 
 RegisterNUICallback('fail', function(_, cb)
-    startLockpick(false)
+    releaseNuiFocus()
     dropFingerprint()
     alertPolice()
     TriggerServerEvent('qbx_storerobbery:server:registerFailed', isUsingAdvanced)
@@ -128,13 +136,13 @@ RegisterNUICallback('fail', function(_, cb)
 end)
 
 RegisterNUICallback('exit', function(_, cb)
-    startLockpick(false)
+    releaseNuiFocus()
     TriggerServerEvent('qbx_storerobbery:server:registerExited')
     cb('ok')
 end)
 
 RegisterNUICallback('padLockClose', function(_, cb)
-    SetNuiFocus(false, false)
+    releaseNuiFocus()
     TriggerServerEvent('qbx_storerobbery:server:failedSafeCracking')
     cb('ok')
 end)
@@ -147,7 +155,7 @@ RegisterNUICallback('combinationFail', function(_, cb)
 end)
 
 RegisterNUICallback('tryCombination', function(data, cb)
-    SetNuiFocus(false, false)
+    releaseNuiFocus()
     local entered = tonumber(data and data.combination)
     if entered and entered == tonumber(currentCombination) then
         TriggerServerEvent('qbx_storerobbery:server:safeCracked', entered)
@@ -183,7 +191,15 @@ end
 
 AddEventHandler('onClientResourceStart', function(resource)
     if resource ~= cache.resource then return end
+    releaseNuiFocus()
     createRegisters()
+end)
+
+AddEventHandler('onClientResourceStop', function(resource)
+    if resource ~= cache.resource then return end
+    openingRegister = false
+    currentCombination = nil
+    releaseNuiFocus()
 end)
 
 CreateThread(function()
