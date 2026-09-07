@@ -7,12 +7,8 @@ local safeCodeUsed = {}
 local playerProgress = {}
 local activeChain = {}
 
--- The Davis/Strawberry LTD store has two physical safes:
--- Safe 2 = jewelry safe, Safe 3 = final safe.
--- Safe 3 can only be started after the same player has completed Safe 2.
-local safeRequires = {
-    [3] = 2,
-}
+-- Main two-safe robbery: Safe 2 is the jewelry safe, then Safe 3 is the final safe.
+local safeRequires = { [3] = 2 }
 
 local function getClosestRegister(coords)
     local closest
@@ -39,11 +35,8 @@ end
 local function clearSafeCode(index)
     local oldCode = safeCodes[index]
     if oldCode then
-        if type(oldCode) == 'table' then
-            safeCodeUsed[table.concat(oldCode, ':')] = nil
-        else
-            safeCodeUsed[oldCode] = nil
-        end
+        local key = type(oldCode) == 'table' and table.concat(oldCode, ':') or oldCode
+        safeCodeUsed[key] = nil
     end
     safeCodes[index] = nil
 end
@@ -64,10 +57,7 @@ end
 local function resetSafeChain(rootIndex)
     local child
     for safeIndex, requiredIndex in pairs(safeRequires) do
-        if requiredIndex == rootIndex then
-            child = safeIndex
-            break
-        end
+        if requiredIndex == rootIndex then child = safeIndex break end
     end
     resetSafe(rootIndex)
     if child then resetSafe(child) end
@@ -75,9 +65,7 @@ end
 
 local function generateUniqueKeypadCode()
     local code
-    repeat
-        code = math.random(1000, 9999)
-    until not safeCodeUsed[code]
+    repeat code = math.random(1000, 9999) until not safeCodeUsed[code]
     safeCodeUsed[code] = true
     return code
 end
@@ -86,18 +74,11 @@ local function generateSafeCode(index)
     local safe = sharedConfig.safes[index]
     if not safe then return nil end
     if safe.type == 'keypad' then return generateUniqueKeypadCode() end
-
     local code
     repeat
-        code = {
-            math.random(150, 450), math.random(1, 100), math.random(360, 450),
-            math.random(300, 340), math.random(350, 400), math.random(320, 340), math.random(350, 600)
-        }
+        code = { math.random(150, 450), math.random(1, 100), math.random(360, 450), math.random(300, 340), math.random(350, 400), math.random(320, 340), math.random(350, 600) }
         local key = table.concat(code, ':')
-        if not safeCodeUsed[key] then
-            safeCodeUsed[key] = true
-            return code
-        end
+        if not safeCodeUsed[key] then safeCodeUsed[key] = true return code end
     until false
 end
 
@@ -111,25 +92,16 @@ local function getReadableCode(index)
     local safe = sharedConfig.safes[index]
     local code = ensureSafeCode(index)
     if safe.type == 'keypad' then return string.format('%04d', code) end
-    return table.concat({
-        tostring(math.floor((code[1] % 360) / 3.60)),
-        tostring(math.floor((code[2] % 360) / 3.60)),
-        tostring(math.floor((code[3] % 360) / 3.60)),
-        tostring(math.floor((code[4] % 360) / 3.60)),
-        tostring(math.floor((code[5] % 360) / 3.60))
-    }, '-')
+    return table.concat({ tostring(math.floor((code[1] % 360) / 3.60)), tostring(math.floor((code[2] % 360) / 3.60)), tostring(math.floor((code[3] % 360) / 3.60)), tostring(math.floor((code[4] % 360) / 3.60)), tostring(math.floor((code[5] % 360) / 3.60)) }, '-')
 end
 
 local function findSafeNote(src, safeIndex)
     local slots = exports.ox_inventory:Search(src, 'slots', 'stickynote')
-    if not slots then return nil end
-    local expected = safeCodes[safeIndex] and getReadableCode(safeIndex) or nil
-    if not expected then return nil end
+    if not slots or not safeCodes[safeIndex] then return nil end
+    local expected = getReadableCode(safeIndex)
     for _, slot in pairs(slots) do
         local metadata = slot.metadata or {}
-        if tonumber(metadata.safeIndex) == safeIndex and tostring(metadata.safeCode or '') == expected then
-            return slot
-        end
+        if tonumber(metadata.safeIndex) == safeIndex and tostring(metadata.safeCode or '') == expected then return slot end
     end
     return nil
 end
@@ -241,7 +213,6 @@ RegisterNetEvent('qbx_storerobbery:server:registerOpened', function(isDone)
     end
 
     player.Functions.AddMoney('cash', math.random(config.registerReward.min, config.registerReward.max))
-
     local safeIndex = sharedConfig.registers[index].safeKey
     if safeIndex and sharedConfig.safes[safeIndex] then
         local stageName = safeRequires[safeIndex] and 'Second Safe' or (safeIndex == 2 and 'Jewelry Safe' or ('Safe ' .. tostring(safeIndex)))
@@ -261,11 +232,9 @@ RegisterNetEvent('qbx_storerobbery:server:trySafe', function()
     if not index or sharedConfig.safes[index].robbed then return end
 
     local required = safeRequires[index]
-    if required then
-        if not playerProgress[src] or not playerProgress[src][required] then
-            exports.qbx_core:Notify(src, 'Complete the Jewelry Safe first.', 'error')
-            return
-        end
+    if required and (not playerProgress[src] or not playerProgress[src][required]) then
+        exports.qbx_core:Notify(src, 'Complete the Jewelry Safe first.', 'error')
+        return
     end
 
     if not playerHasSafeNote(src, index) then
@@ -302,9 +271,7 @@ local function giveFinalSafeReward(player, index)
 
     if config.safeReward.chanceAtSpecial > math.random(0, 100) then
         player.Functions.AddItem('rolex', math.random(config.safeReward.rolexAmount.min, config.safeReward.rolexAmount.max))
-        if config.safeReward.chanceAtSpecial / 2 > math.random(0, 100) then
-            player.Functions.AddItem('goldbar', config.safeReward.goldbarAmount)
-        end
+        if config.safeReward.chanceAtSpecial / 2 > math.random(0, 100) then player.Functions.AddItem('goldbar', config.safeReward.goldbarAmount) end
     end
 end
 
@@ -337,10 +304,12 @@ local function completeSafe(src, enteredCode)
         return
     end
 
-    local expected = ensureSafeCode(index)
-    if not enteredCode or tonumber(enteredCode) ~= tonumber(expected) then
-        TriggerClientEvent('qbx_storerobbery:client:safeResult', src, false, 'Incorrect code — try again.')
-        return
+    if sharedConfig.safes[index].type == 'keypad' then
+        local expected = ensureSafeCode(index)
+        if not enteredCode or tonumber(enteredCode) ~= tonumber(expected) then
+            TriggerClientEvent('qbx_storerobbery:client:safeResult', src, false, 'Incorrect code — try again.')
+            return
+        end
     end
 
     consumeSafeNote(src, index)
@@ -352,18 +321,15 @@ local function completeSafe(src, enteredCode)
     TriggerClientEvent('qbx_storerobbery:client:safeResult', src, true, index == 2 and 'Jewelry safe unlocked!' or 'Safe unlocked!')
     giveFinalSafeReward(player, index)
 
-    local nextSafe = nil
+    local nextSafe
     for child, parent in pairs(safeRequires) do
-        if parent == index then
-            nextSafe = child
-            break
-        end
+        if parent == index then nextSafe = child break end
     end
 
     if nextSafe and sharedConfig.safes[nextSafe] and not sharedConfig.safes[nextSafe].robbed then
         activeChain[src] = index
         giveSafeNote(src, nextSafe, 'Second Safe')
-        exports.qbx_core:Notify(src, 'You found another combination. The second safe is now available.', 'success', 10000)
+        exports.qbx_core:Notify(src, 'You found the second note inside the jewelry safe. Use its different code on the second safe.', 'success', 10000)
     else
         activeChain[src] = nil
         TriggerClientEvent('qbx_storerobbery:client:startGetaway', src, index)
@@ -372,10 +338,7 @@ local function completeSafe(src, enteredCode)
     broadcastState()
 
     local chainRoot = required or index
-    if safeRequires[chainRoot] then chainRoot = safeRequires[chainRoot] end
-    SetTimeout(math.random(config.safeRefresh.min, config.safeRefresh.max), function()
-        resetSafeChain(chainRoot)
-    end)
+    SetTimeout(math.random(config.safeRefresh.min, config.safeRefresh.max), function() resetSafeChain(chainRoot) end)
 end
 
 RegisterNetEvent('qbx_storerobbery:server:checkSafeCombination', function(enteredCode)
@@ -393,14 +356,12 @@ end)
 AddEventHandler('playerDropped', function()
     local src = source
     local register = startedRegister[src]
-    local safe = startedSafe[src]
     local chainRoot = activeChain[src]
     startedRegister[src] = nil
     startedSafe[src] = nil
     playerProgress[src] = nil
     activeChain[src] = nil
     if register then resetRegister(register) end
-    if safe then startedSafe[src] = nil end
     if chainRoot then resetSafeChain(chainRoot) end
 end)
 
