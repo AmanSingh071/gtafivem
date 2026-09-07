@@ -5,115 +5,90 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 button { font: inherit; }
 
 #store-ui {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-    background: rgba(3, 7, 12, .68);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity .16s ease;
-    z-index: 9999;
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px;
+    background: rgba(3, 7, 12, .74); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    opacity: 0; pointer-events: none; transition: opacity .16s ease; z-index: 9999;
 }
 #store-ui.visible { opacity: 1; pointer-events: auto; }
 .hidden { display: none !important; }
 
 .robbery-card {
-    width: min(620px, 92vw);
-    border: 1px solid rgba(255,255,255,.12);
-    border-radius: 22px;
-    background: linear-gradient(145deg, rgba(27,34,43,.98), rgba(11,16,22,.98));
-    box-shadow: 0 30px 90px rgba(0,0,0,.62), inset 0 1px 0 rgba(255,255,255,.04);
-    color: #f4f7fa;
-    padding: 26px;
-    animation: cardIn .18s ease-out;
+    width: min(760px, 94vw); border: 1px solid rgba(255,255,255,.13); border-radius: 24px;
+    background: linear-gradient(145deg, rgba(27,34,43,.99), rgba(8,13,19,.99));
+    box-shadow: 0 32px 100px rgba(0,0,0,.68), inset 0 1px 0 rgba(255,255,255,.05);
+    color: #f4f7fa; padding: 32px; animation: cardIn .18s ease-out;
 }
 @keyframes cardIn { from { transform: translateY(12px) scale(.985); opacity: 0; } to { transform: none; opacity: 1; } }
 
-.card-topline, .safe-header { display: flex; align-items: flex-start; gap: 16px; }
+.card-topline, .safe-header { display: flex; align-items: flex-start; gap: 18px; }
 .card-topline > div:first-child, .safe-header > div:nth-child(2) { flex: 1; }
-.eyebrow { font-size: 11px; font-weight: 900; letter-spacing: 2px; color: #8fa2b5; margin-bottom: 6px; }
-h1 { margin: 0; font-size: 25px; line-height: 1.15; letter-spacing: -.3px; }
-.muted { margin: 8px 0 0; color: #a9b4bf; font-size: 13px; line-height: 1.45; }
+.eyebrow { font-size: 11px; font-weight: 900; letter-spacing: 2px; color: #8fa2b5; margin-bottom: 7px; }
+h1 { margin: 0; font-size: 28px; line-height: 1.15; letter-spacing: -.4px; }
+.muted { margin: 9px 0 0; color: #a9b4bf; font-size: 14px; line-height: 1.5; }
 .muted b { color: #dce5ec; }
 .icon-button {
-    width: 36px; height: 36px; flex: 0 0 36px; border: 1px solid rgba(255,255,255,.1);
-    border-radius: 10px; background: rgba(255,255,255,.055); color: #aeb9c4; cursor: pointer; font-size: 25px; line-height: 30px;
+    width: 40px; height: 40px; flex: 0 0 40px; border: 1px solid rgba(255,255,255,.1);
+    border-radius: 11px; background: rgba(255,255,255,.055); color: #aeb9c4; cursor: pointer; font-size: 27px; line-height: 32px;
 }
 .icon-button:hover { background: rgba(255,255,255,.1); color: white; }
 
-.progress-row, .pin-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; color: #8392a0; font-size: 11px; font-weight: 800; letter-spacing: 1px; }
+.progress-row, .pin-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 26px; color: #8392a0; font-size: 11px; font-weight: 800; letter-spacing: 1px; }
 .progress-row b { color: #e8edf2; }
 #lockpick-status { color: #dce5ec; letter-spacing: 0; text-transform: uppercase; }
 #lockpick-status.good { color: #82e2aa; }
 #lockpick-status.bad { color: #ff9b9b; }
 
-.pingpong {
-    position: relative; width: 100%; height: 82px; margin: 15px 0 18px; padding: 30px 0;
-}
+.pingpong { position: relative; width: 100%; height: 92px; margin: 18px 0 22px; padding: 34px 0; }
 .pingpong::before {
-    content: ''; position: absolute; left: 0; right: 0; top: 30px; height: 22px; border-radius: 999px;
+    content: ''; position: absolute; left: 0; right: 0; top: 34px; height: 24px; border-radius: 999px;
     background: #0a0e13; border: 1px solid #34404c; box-shadow: inset 0 4px 10px rgba(0,0,0,.45);
 }
-.track-glow { position: absolute; left: 0; right: 0; top: 30px; height: 22px; border-radius: 999px; background: linear-gradient(90deg, transparent, rgba(96,220,151,.08), transparent); }
+.track-glow { position: absolute; left: 0; right: 0; top: 34px; height: 24px; border-radius: 999px; background: linear-gradient(90deg, transparent, rgba(96,220,151,.08), transparent); }
 .target-zone {
-    position: absolute; top: 31px; height: 20px; border-radius: 999px;
-    background: linear-gradient(90deg, #4dbb7d, #7de3a5); box-shadow: 0 0 18px rgba(91,220,145,.38); transition: left .18s ease, width .18s ease;
+    position: absolute; top: 35px; height: 22px; border-radius: 999px;
+    background: linear-gradient(90deg, #4dbb7d, #7de3a5); box-shadow: 0 0 20px rgba(91,220,145,.38); transition: left .18s ease, width .18s ease;
 }
 .marker {
-    position: absolute; top: 23px; width: 6px; height: 36px; border-radius: 999px; transform: translateX(-3px);
+    position: absolute; top: 25px; width: 7px; height: 42px; border-radius: 999px; transform: translateX(-3px);
     background: #fff; box-shadow: 0 0 15px rgba(255,255,255,.85); will-change: left;
 }
 .marker.success { background: #a4ffd0; box-shadow: 0 0 24px #69e79d; }
 .marker.shake { animation: shake .25s ease; }
 @keyframes shake { 25% { transform: translateX(-6px) } 50% { transform: translateX(4px) } 75% { transform: translateX(-5px) } }
 
-.lockpick-help { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; color: #8f9ca8; font-size: 11px; }
-kbd {
-    display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 23px; padding: 0 7px;
-    border: 1px solid #44515e; border-bottom-width: 2px; border-radius: 6px; background: #1a222b; color: #e7edf2; font-size: 10px; font-weight: 900;
-}
+.lockpick-help { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; color: #8f9ca8; font-size: 12px; }
+kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 32px; height: 24px; padding: 0 7px; border: 1px solid #44515e; border-bottom-width: 2px; border-radius: 6px; background: #1a222b; color: #e7edf2; font-size: 10px; font-weight: 900; }
 #lockpick-tool { margin-left: auto; color: #9ca9b5; }
-.round-dots { display: flex; gap: 7px; margin-top: 20px; }
-.round-dots span { width: 8px; height: 8px; border-radius: 50%; background: #35414d; transition: .15s; }
-.round-dots span.active { width: 22px; border-radius: 99px; background: #70d99c; box-shadow: 0 0 12px rgba(112,217,156,.3); }
+.round-dots { display: flex; gap: 7px; margin-top: 22px; }
+.round-dots span { width: 9px; height: 9px; border-radius: 50%; background: #35414d; transition: .15s; }
+.round-dots span.active { width: 26px; border-radius: 99px; background: #70d99c; box-shadow: 0 0 12px rgba(112,217,156,.3); }
 
-.safe-card { width: min(430px, 92vw); }
-.safe-icon {
-    width: 44px; height: 44px; flex: 0 0 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
-    background: rgba(104,177,230,.12); border: 1px solid rgba(104,177,230,.22); color: #91c8ee; font-size: 20px;
-}
-.pin-display {
-    display: flex; justify-content: center; gap: 18px; margin: 25px 0 10px; padding: 17px 16px;
-    border: 1px solid #35424f; border-radius: 14px; background: #080c11; box-shadow: inset 0 5px 18px rgba(0,0,0,.4);
-}
-.pin-display span { width: 22px; color: #4e5c69; font-size: 25px; line-height: 1; text-align: center; transition: .12s; }
+.safe-card { width: min(540px, 94vw); padding: 34px; }
+.safe-icon { width: 50px; height: 50px; flex: 0 0 50px; border-radius: 14px; display: flex; align-items: center; justify-content: center; background: rgba(104,177,230,.12); border: 1px solid rgba(104,177,230,.22); color: #91c8ee; font-size: 23px; }
+.pin-display { display: flex; justify-content: center; gap: 25px; margin: 30px 0 12px; padding: 21px 18px; border: 1px solid #35424f; border-radius: 16px; background: #080c11; box-shadow: inset 0 5px 18px rgba(0,0,0,.4); }
+.pin-display span { width: 28px; color: #4e5c69; font-size: 30px; line-height: 1; text-align: center; transition: .12s; }
 .pin-display span.filled { color: #eaf1f6; text-shadow: 0 0 12px rgba(230,242,250,.25); }
 .pin-meta { margin-top: 0; }
 #pin-message { color: #8fa0ad; }
-.keypad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-top: 18px; }
-.keypad-grid button {
-    height: 56px; border: 1px solid #34414e; border-radius: 12px; background: linear-gradient(180deg, #29333e, #1d252e);
-    color: #f0f4f7; cursor: pointer; font-size: 17px; font-weight: 900; transition: transform .07s, background .1s, border-color .1s;
-}
+.keypad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; margin-top: 20px; }
+.keypad-grid button { height: 64px; border: 1px solid #34414e; border-radius: 13px; background: linear-gradient(180deg, #29333e, #1d252e); color: #f0f4f7; cursor: pointer; font-size: 19px; font-weight: 900; transition: transform .07s, background .1s, border-color .1s; }
 .keypad-grid button:hover { border-color: #637383; background: linear-gradient(180deg, #34414e, #232d37); }
 .keypad-grid button:active { transform: scale(.96); }
 .keypad-grid .secondary { color: #ffb4b4; background: linear-gradient(180deg, #3b272b, #2b1d20); }
 .keypad-grid .primary { color: #bdf4d2; background: linear-gradient(180deg, #24563b, #183b2a); border-color: #367753; }
-.keypad-footer { margin-top: 14px; text-align: center; color: #71808d; font-size: 10px; }
+.keypad-footer { margin-top: 16px; text-align: center; color: #71808d; font-size: 11px; }
 .invalid { animation: cardShake .22s ease; }
+.success { animation: safeSuccess .28s ease; border-color: rgba(112,217,156,.55); }
 @keyframes cardShake { 25% { transform: translateX(-5px) } 50% { transform: translateX(5px) } 75% { transform: translateX(-3px) } }
+@keyframes safeSuccess { 50% { transform: scale(1.015); } }
 
 @media (max-width: 520px) {
     #store-ui { padding: 12px; }
-    .robbery-card { padding: 20px; border-radius: 18px; }
-    h1 { font-size: 21px; }
+    .robbery-card { padding: 22px; border-radius: 19px; }
+    .safe-card { padding: 24px; }
+    h1 { font-size: 22px; }
     .lockpick-help { justify-content: flex-start; }
     #lockpick-tool { width: 100%; margin-left: 0; }
-    .keypad-grid button { height: 52px; }
-    .pin-display { gap: 13px; }
+    .keypad-grid button { height: 56px; }
+    .pin-display { gap: 16px; }
 }
