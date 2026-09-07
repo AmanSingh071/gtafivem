@@ -4,6 +4,11 @@ local isUsingAdvanced
 local openingRegister
 local currentCombination
 local safeUiOpen = false
+local getawayHelicopter
+local getawayPilot
+local policeHelicopter
+local policePilot
+local policeGunner
 
 local function releaseNuiFocus()
     SetNuiFocus(false, false)
@@ -15,9 +20,7 @@ local function forceCloseSafeUi(notifyServer)
     currentCombination = nil
     releaseNuiFocus()
     SendNUIMessage({ action = 'closeKeypad' })
-    if notifyServer then
-        TriggerServerEvent('qbx_storerobbery:server:failedSafeCracking')
-    end
+    if notifyServer then TriggerServerEvent('qbx_storerobbery:server:failedSafeCracking') end
 end
 
 local function startLockpick(bool)
@@ -87,10 +90,8 @@ end)
 RegisterNetEvent('qbx_storerobbery:client:initSafeAttempt', function(closestSafeIndex, combination)
     local safe = sharedConfig.safes[closestSafeIndex]
     if not safe or not combination then return end
-
     currentCombination = combination
     safeUiOpen = true
-
     if safe.type == 'keypad' then
         SetNuiFocus(true, true)
         SetNuiFocusKeepInput(false)
@@ -102,12 +103,9 @@ RegisterNetEvent('qbx_storerobbery:client:initSafeAttempt', function(closestSafe
     end
 end)
 
-RegisterNetEvent('qbx_storerobbery:client:safeResult', function(correct)
+RegisterNetEvent('qbx_storerobbery:client:safeResult', function(correct, message)
     if not safeUiOpen then return end
-
     if correct then
-        -- Hide the UI first, then release focus. This prevents the player being trapped
-        -- by a stale NUI focus after the success animation.
         safeUiOpen = false
         SendNUIMessage({ action = 'safeResult', correct = true })
         CreateThread(function()
@@ -117,10 +115,9 @@ RegisterNetEvent('qbx_storerobbery:client:safeResult', function(correct)
             currentCombination = nil
         end)
     else
-        -- Wrong code: remain in the keypad and keep focus for another attempt.
         SetNuiFocus(true, true)
         SetNuiFocusKeepInput(false)
-        SendNUIMessage({ action = 'safeResult', correct = false })
+        SendNUIMessage({ action = 'safeResult', correct = false, message = message or 'Incorrect code — try again.' })
     end
 end)
 
@@ -147,17 +144,129 @@ lib.callback.register('qbx_storerobbery:client:getAlertChance', function()
     return chance
 end)
 
+local function loadModel(model)
+    local hash = joaat(model)
+    if not IsModelInCdimage(hash) or not IsModelAVehicle(hash) then return nil end
+    lib.requestModel(hash, 10000)
+    return hash
+end
+
+local function cleanupHelicopter(entity, pilot, gunner)
+    if DoesEntityExist(pilot) then DeleteEntity(pilot) end
+    if DoesEntityExist(gunner) then DeleteEntity(gunner) end
+    if DoesEntityExist(entity) then DeleteEntity(entity) end
+end
+
+local function spawnGetawayHelicopter()
+    if DoesEntityExist(getawayHelicopter) then return end
+
+    local playerCoords = GetEntityCoords(cache.ped)
+    local spawn = GetOffsetFromEntityInWorldCoords(cache.ped, 18.0, -12.0, 12.0)
+    local foundGround, groundZ = GetGroundZFor_3dCoord(spawn.x, spawn.y, spawn.z, false)
+    if foundGround then spawn = vector3(spawn.x, spawn.y, groundZ + 12.0) end
+
+    local heliHash = loadModel('frogger')
+    local pilotHash = loadModel('s_m_m_pilot_02')
+    if not heliHash or not pilotHash then
+        exports.qbx_core:Notify('Could not spawn the getaway helicopter. Check vehicle/ped models.', 'error')
+        return
+    end
+
+    getawayHelicopter = CreateVehicle(heliHash, spawn.x, spawn.y, spawn.z, GetEntityHeading(cache.ped), true, true)
+    if not DoesEntityExist(getawayHelicopter) then
+        exports.qbx_core:Notify('Getaway helicopter failed to spawn.', 'error')
+        return
+    end
+
+    SetVehicleEngineOn(getawayHelicopter, true, true, false)
+    SetHeliBladesFullSpeed(getawayHelicopter)
+    SetVehicleDoorsLocked(getawayHelicopter, 2)
+    SetEntityAsMissionEntity(getawayHelicopter, true, true)
+    getawayPilot = CreatePedInsideVehicle(getawayHelicopter, 4, pilotHash, -1, true, true)
+    if not DoesEntityExist(getawayPilot) then
+        cleanupHelicopter(getawayHelicopter, nil, nil)
+        getawayHelicopter = nil
+        exports.qbx_core:Notify('Getaway pilot failed to spawn.', 'error')
+        return
+    end
+
+    SetBlockingOfNonTemporaryEvents(getawayPilot, true)
+    SetPedKeepTask(getawayPilot, true)
+    SetDriverAbility(getawayPilot, 1.0)
+    SetDriverAggressiveness(getawayPilot, 1.0)
+    TaskHeliMission(getawayPilot, getawayHelicopter, 0, 0, playerCoords.x, playerCoords.y, playerCoords.z + 20.0, 4, 45.0, -1.0, -1, 100, 100, -1, 0)
+
+    SetModelAsNoLongerNeeded(heliHash)
+    SetModelAsNoLongerNeeded(pilotHash)
+    exports.qbx_core:Notify('🚁 Getaway helicopter is waiting outside the store!', 'success', 7000)
+
+    CreateThread(function()
+        Wait(45000)
+        if DoesEntityExist(getawayPilot) and DoesEntityExist(getawayHelicopter) and DoesEntityExist(cache.ped) then
+            TaskHeliMission(getawayPilot, getawayHelicopter, 0, 0, GetEntityCoords(cache.ped).x, GetEntityCoords(cache.ped).y, GetEntityCoords(cache.ped).z + 20.0, 4, 35.0, -1.0, -1, 100, 100, -1, 0)
+        end
+    end)
+end
+
+local function spawnPoliceHelicopter()
+    if DoesEntityExist(policeHelicopter) then return end
+
+    local target = GetEntityCoords(cache.ped)
+    local spawn = GetOffsetFromEntityInWorldCoords(cache.ped, -35.0, -35.0, 25.0)
+    local heliHash = loadModel('polmav')
+    local pilotHash = loadModel('s_m_y_pilot_01')
+    local gunnerHash = loadModel('s_m_y_cop_01')
+    local weaponHash = joaat('WEAPON_CARBINERIFLE')
+    if not heliHash or not pilotHash or not gunnerHash then return end
+
+    policeHelicopter = CreateVehicle(heliHash, spawn.x, spawn.y, spawn.z, GetEntityHeading(cache.ped), true, true)
+    if not DoesEntityExist(policeHelicopter) then return end
+    SetVehicleEngineOn(policeHelicopter, true, true, false)
+    SetHeliBladesFullSpeed(policeHelicopter)
+    SetEntityAsMissionEntity(policeHelicopter, true, true)
+
+    policePilot = CreatePedInsideVehicle(policeHelicopter, 4, pilotHash, -1, true, true)
+    policeGunner = CreatePedInsideVehicle(policeHelicopter, 4, gunnerHash, 0, true, true)
+    if not DoesEntityExist(policePilot) or not DoesEntityExist(policeGunner) then
+        cleanupHelicopter(policeHelicopter, policePilot, policeGunner)
+        policeHelicopter, policePilot, policeGunner = nil, nil, nil
+        return
+    end
+
+    GiveWeaponToPed(policeGunner, weaponHash, 500, false, true)
+    SetCurrentPedWeapon(policeGunner, weaponHash, true)
+    SetPedAccuracy(policeGunner, 70)
+    SetPedCombatAbility(policeGunner, 2)
+    SetPedCombatAttributes(policeGunner, 46, true)
+    SetPedKeepTask(policePilot, true)
+    SetPedKeepTask(policeGunner, true)
+    SetBlockingOfNonTemporaryEvents(policePilot, true)
+    SetBlockingOfNonTemporaryEvents(policeGunner, true)
+    SetDriverAbility(policePilot, 1.0)
+    SetDriverAggressiveness(policePilot, 1.0)
+
+    TaskHeliMission(policePilot, policeHelicopter, 0, 0, target.x, target.y, target.z + 18.0, 6, 55.0, -1.0, -1, 80, 80, -1, 0)
+    TaskCombatPed(policeGunner, cache.ped, 0, 16)
+
+    SetModelAsNoLongerNeeded(heliHash)
+    SetModelAsNoLongerNeeded(pilotHash)
+    SetModelAsNoLongerNeeded(gunnerHash)
+    exports.qbx_core:Notify('🚨 POLICE AIR UNIT INCOMING — they are pursuing you!', 'error', 9000)
+end
+
+RegisterNetEvent('qbx_storerobbery:client:startGetaway', function()
+    spawnGetawayHelicopter()
+    CreateThread(function()
+        Wait(30000)
+        if DoesEntityExist(cache.ped) then spawnPoliceHelicopter() end
+    end)
+end)
+
 RegisterNUICallback('success', function(_, cb)
     releaseNuiFocus()
     openingRegisterHandler(config.openRegisterTime)
     alertPolice()
-    if lib.progressBar({
-        duration = config.openRegisterTime,
-        label = locale('text.emptying_the_register'),
-        useWhileDead = false,
-        canCancel = true,
-        disable = { move = true, car = true, mouse = false, combat = true }
-    }) then
+    if lib.progressBar({ duration = config.openRegisterTime, label = locale('text.emptying_the_register'), useWhileDead = false, canCancel = true, disable = { move = true, car = true, mouse = false, combat = true } }) then
         openingRegister = false
         TriggerServerEvent('qbx_storerobbery:server:registerOpened', true)
     else
@@ -201,13 +310,11 @@ RegisterNUICallback('tryCombination', function(data, cb)
         cb('ok')
         return
     end
-
     local entered = tonumber(data and data.combination)
     if not entered or not currentCombination then
         cb('ok')
         return
     end
-
     TriggerServerEvent('qbx_storerobbery:server:checkSafeCombination', entered)
     cb('ok')
 end)
@@ -215,19 +322,7 @@ end)
 local function createRegisters()
     CreateThread(function()
         for k, v in pairs(sharedConfig.registers) do
-            exports.ox_target:addBoxZone({
-                coords = v.coords,
-                size = vec3(1.5, 1.5, 1.5),
-                rotation = 0.0,
-                debug = config.debugPoly,
-                options = {{
-                    name = k .. '_register',
-                    icon = 'cash-register',
-                    label = 'Open Register',
-                    canInteract = function() return checkInteractStatus(k) end,
-                    serverEvent = 'qbx_storerobbery:server:checkStatus',
-                }}
-            })
+            exports.ox_target:addBoxZone({ coords = v.coords, size = vec3(1.5, 1.5, 1.5), rotation = 0.0, debug = config.debugPoly, options = {{ name = k .. '_register', icon = 'cash-register', label = 'Open Register', canInteract = function() return checkInteractStatus(k) end, serverEvent = 'qbx_storerobbery:server:checkStatus' }} })
         end
     end)
 end
@@ -247,17 +342,17 @@ AddEventHandler('onClientResourceStop', function(resource)
     currentCombination = nil
     releaseNuiFocus()
     SendNUIMessage({ action = 'closeKeypad' })
+    cleanupHelicopter(getawayHelicopter, getawayPilot, nil)
+    cleanupHelicopter(policeHelicopter, policePilot, policeGunner)
+    getawayHelicopter, getawayPilot = nil, nil
+    policeHelicopter, policePilot, policeGunner = nil, nil, nil
 end)
 
--- Emergency NUI watchdog. If the UI is unexpectedly left active, ESC/cancel still
--- works, and a dead player can never remain locked in the safe UI.
 CreateThread(function()
     while true do
         if safeUiOpen then
             Wait(1000)
-            if safeUiOpen and IsEntityDead(cache.ped) then
-                forceCloseSafeUi(true)
-            end
+            if safeUiOpen and IsEntityDead(cache.ped) then forceCloseSafeUi(true) end
         else
             Wait(1500)
         end
@@ -273,10 +368,7 @@ CreateThread(function()
             if #(coords - sharedConfig.registers[i].coords) <= 1.4 and sharedConfig.registers[i].robbed then
                 time, nearby = 0, true
                 if config.useDrawText then
-                    if not hasShownText then
-                        hasShownText = true
-                        lib.showTextUI(locale('text.register_empty'), { position = 'left-center' })
-                    end
+                    if not hasShownText then hasShownText = true lib.showTextUI(locale('text.register_empty'), { position = 'left-center' }) end
                 else
                     qbx.drawText3d({ text = locale('text.register_empty'), coords = sharedConfig.registers[i].coords })
                 end
@@ -302,10 +394,7 @@ CreateThread(function()
                     if IsControlJustPressed(0, 38) then TriggerServerEvent('qbx_storerobbery:server:trySafe') end
                 end
                 if config.useDrawText then
-                    if not hasShownText then
-                        hasShownText = true
-                        lib.showTextUI(text, { position = 'left-center' })
-                    end
+                    if not hasShownText then hasShownText = true lib.showTextUI(text, { position = 'left-center' }) end
                 else
                     qbx.drawText3d({ text = text, coords = sharedConfig.safes[i].coords })
                 end
